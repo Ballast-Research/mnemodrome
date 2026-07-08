@@ -16,7 +16,7 @@ cryptography>=41.0.0           # Cryptographic operations
 # Admin Web UI dependencies (Feature 010)
 fastapi>=0.115.0               # FastAPI web framework
 uvicorn[standard]>=0.32.0      # ASGI server for FastAPI
-python-multipart>=0.0.9        # Form data parsing
+python-multipart>=0.0.31        # Form data parsing
 
 # Development and testing
 pytest>=7.4.0                  # Testing framework
