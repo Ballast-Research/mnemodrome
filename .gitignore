@@ -1,0 +1,105 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Virtual environments
+.env
+.venv
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Testing
+.coverage
+.pytest_cache/
+.tox/
+htmlcov/
+
+# Linting
+.ruff_cache/
+.mypy_cache/
+
+# Neo4j
+/data/
+/logs/
+/conf/
+config/neo4j/
+
+# Logs
+*.log
+logs/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Docker
+docker-compose.override.yml
+docker-compose.yml.bak*
+
+# Environment variables
+.env.local
+.env.production
+.env.test
+
+# Timestamped backup files
+*.bak.*
+*.v1-backup
+
+# Runtime files
+.mnemodrome_retry_queue.json
+mnemodrome-health-report.json
+.env.backup-*
+.env.backup.*
+scripts/vault_ingestion_state.json
+
+# Transfer documents (session-specific)
+TRANSFER-*.md
+
+# Sweep/audit results
+sweep-*.tsv
+
+# Internal design specs (not shipped in OSS release)
+specs/
+
+# Personal infrastructure artifacts
+pipelines/
+.monitoring_issues.json
+scripts/health_monitor.py.bak
+
+# Working/transfer notes and archived trees (not part of the public release)
+docs/transfers/
+docs/archive/
+
+# Local dev tools
+.devtime/
+
+# Personal harness tooling (Claude Code / SpecKit)
+.claude/
+CLAUDE.md

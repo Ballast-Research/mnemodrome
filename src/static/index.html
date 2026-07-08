@@ -1,0 +1,255 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Mnemodrome Admin Dashboard</title>
+    <link rel="stylesheet" href="/admin/static/style.css">
+</head>
+<body>
+    <!-- Navigation -->
+    <nav role="navigation">
+        <div class="nav-content">
+            <a href="/admin" class="nav-brand">Mnemodrome Admin</a>
+            <ul class="nav-links">
+                <li><a href="/admin" data-page="dashboard" class="active">Dashboard</a></li>
+                <li><a href="/admin/config-editor" data-page="config">Configuration</a></li>
+                <li><a href="/admin/health-dashboard" data-page="health">Health</a></li>
+                <li><a href="/admin/service" data-page="service">Service</a></li>
+                <li><a href="/admin/event-viewer" data-page="events">Events</a></li>
+            </ul>
+            <div class="dark-mode-toggle">
+                <button type="button" id="dark-mode-toggle" onclick="toggleDarkMode()" title="Toggle Dark Mode">
+                    <span id="dark-mode-icon">🌙</span>
+                </button>
+            </div>
+        </div>
+    </nav>
+
+    <!-- Main Content -->
+    <main>
+        <!-- Page Header -->
+        <div class="page-header">
+            <h1>Dashboard</h1>
+            <p>Mnemodrome MCP Server Administration</p>
+        </div>
+
+        <!-- Quick Stats -->
+        <section aria-labelledby="stats-heading">
+            <h2 id="stats-heading" class="card-header">System Overview</h2>
+            <div class="grid grid-4" id="stats-grid">
+                <!-- Stats cards will be populated by JavaScript -->
+                <div class="status-card">
+                    <div class="status-card-header">
+                        <span class="status-card-title">Event Log Status</span>
+                        <span class="status-indicator healthy" id="event-log-indicator"></span>
+                    </div>
+                    <div class="status-card-value" id="event-count">--</div>
+                    <div class="status-card-label">Total Events</div>
+                </div>
+
+                <div class="status-card">
+                    <div class="status-card-header">
+                        <span class="status-card-title">Neo4j Connection</span>
+                        <span class="status-indicator healthy" id="neo4j-indicator"></span>
+                    </div>
+                    <div class="status-card-value" id="neo4j-status">--</div>
+                    <div class="status-card-label">Database Status</div>
+                </div>
+
+                <div class="status-card">
+                    <div class="status-card-header">
+                        <span class="status-card-title">Redis Connection</span>
+                        <span class="status-indicator healthy" id="redis-indicator"></span>
+                    </div>
+                    <div class="status-card-value" id="redis-status">--</div>
+                    <div class="status-card-label">Cache Status</div>
+                </div>
+
+                <div class="status-card">
+                    <div class="status-card-header">
+                        <span class="status-card-title">MCP Server</span>
+                        <span class="status-indicator healthy" id="mcp-indicator"></span>
+                    </div>
+                    <div class="status-card-value" id="mcp-version">--</div>
+                    <div class="status-card-label">Version</div>
+                </div>
+            </div>
+        </section>
+
+        <!-- System Information -->
+        <section aria-labelledby="sysinfo-heading" class="mt-4">
+            <div class="card">
+                <h2 id="sysinfo-heading" class="card-header">System Information</h2>
+                <div class="card-body">
+                    <div class="grid grid-2" id="system-info">
+                        <!-- System info will be populated by JavaScript -->
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Recent Activity -->
+        <section aria-labelledby="activity-heading" class="mt-4">
+            <div class="card">
+                <h2 id="activity-heading" class="card-header">Recent Activity</h2>
+                <div class="card-body">
+                    <div id="recent-events-container">
+                        <div class="spinner-container">
+                            <div class="spinner spinner-sm"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+    </main>
+
+    <!-- Footer -->
+    <footer>
+        <p>&copy; 2025 Mnemodrome Admin UI | <span id="last-updated">Last updated: --</span></p>
+    </footer>
+
+    <!-- Scripts -->
+    <script src="/admin/static/app.js"></script>
+    <script>
+        // Set active navigation
+        setActiveNavLink('dashboard');
+
+        // Load dashboard data
+        async function loadDashboard() {
+            try {
+                // Load health data
+                const health = await apiGet('/admin/health');
+                updateHealthStats(health);
+
+                // Load recent events
+                const eventsData = await apiGet('/admin/events?limit=10');
+                updateRecentEvents(eventsData.events);
+
+                // Update last updated timestamp
+                document.getElementById('last-updated').textContent =
+                    `Last updated: ${new Date().toLocaleTimeString()}`;
+
+            } catch (error) {
+                handleApiError(error, 'loading dashboard');
+            }
+        }
+
+        // Update health stats cards
+        function updateHealthStats(health) {
+            // Event Log
+            if (health.event_log) {
+                const eventCount = health.event_log.total_events || 0;
+                document.getElementById('event-count').textContent = formatNumber(eventCount);
+
+                const eventIndicator = document.getElementById('event-log-indicator');
+                if (health.event_log.status === 'healthy') {
+                    eventIndicator.className = 'status-indicator healthy';
+                } else {
+                    eventIndicator.className = 'status-indicator warning';
+                }
+            }
+
+            // Neo4j
+            if (health.neo4j) {
+                const neo4jStatus = health.neo4j.connected ? 'Connected' : 'Disconnected';
+                document.getElementById('neo4j-status').textContent = neo4jStatus;
+
+                const neo4jIndicator = document.getElementById('neo4j-indicator');
+                neo4jIndicator.className = health.neo4j.connected
+                    ? 'status-indicator healthy'
+                    : 'status-indicator error';
+            }
+
+            // Redis
+            if (health.redis) {
+                const redisStatus = health.redis.connected ? 'Connected' : 'Disconnected';
+                document.getElementById('redis-status').textContent = redisStatus;
+
+                const redisIndicator = document.getElementById('redis-indicator');
+                redisIndicator.className = health.redis.connected
+                    ? 'status-indicator healthy'
+                    : 'status-indicator error';
+            }
+
+            // MCP Server
+            if (health.mcp_server) {
+                document.getElementById('mcp-version').textContent = health.mcp_server.version || 'Unknown';
+            }
+
+            // Update system information
+            updateSystemInfo(health);
+        }
+
+        // Update system information section
+        function updateSystemInfo(health) {
+            const systemInfo = document.getElementById('system-info');
+
+            const info = [
+                { label: 'Event Log Storage', value: health.event_log ? formatBytes(health.event_log.storage_size || 0) : 'N/A' },
+                { label: 'Event Retention', value: health.event_log ? `${health.event_log.retention_days || 90} days` : 'N/A' },
+                { label: 'Neo4j Database', value: health.neo4j ? health.neo4j.database : 'N/A' },
+                { label: 'Neo4j URI', value: health.neo4j ? health.neo4j.uri : 'N/A' },
+                { label: 'Redis Host', value: health.redis ? `${health.redis.host}:${health.redis.port}` : 'N/A' },
+                { label: 'MCP Port', value: health.mcp_server ? health.mcp_server.port : 'N/A' },
+            ];
+
+            systemInfo.innerHTML = info.map(item => `
+                <div style="padding: 0.75rem 0; border-bottom: 1px solid var(--border-color);">
+                    <div style="font-size: 0.875rem; color: var(--text-secondary);">${item.label}</div>
+                    <div style="font-size: 1rem; font-weight: 500; color: var(--text-primary); margin-top: 0.25rem;">
+                        ${escapeHtml(item.value)}
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        // Update recent events table
+        function updateRecentEvents(events) {
+            const container = document.getElementById('recent-events-container');
+
+            if (!events || events.length === 0) {
+                container.innerHTML = '<p class="text-muted">No recent events</p>';
+                return;
+            }
+
+            const table = document.createElement('table');
+            table.innerHTML = `
+                <thead>
+                    <tr>
+                        <th>Time</th>
+                        <th>Type</th>
+                        <th>Action</th>
+                        <th>Actor</th>
+                        <th>Result</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    ${events.map(event => `
+                        <tr>
+                            <td>${formatTimestamp(event.timestamp)}</td>
+                            <td><span class="badge badge-info">${escapeHtml(event.event_type)}</span></td>
+                            <td>${escapeHtml(event.action || 'N/A')}</td>
+                            <td>${escapeHtml(event.actor || 'system')}</td>
+                            <td>
+                                ${event.result === 'success'
+                                    ? '<span class="badge badge-success">Success</span>'
+                                    : '<span class="badge badge-error">Error</span>'}
+                            </td>
+                        </tr>
+                    `).join('')}
+                </tbody>
+            `;
+
+            container.innerHTML = '';
+            container.appendChild(table);
+        }
+
+        // Initial load
+        loadDashboard();
+
+        // Auto-refresh every 30 seconds
+        setupAutoRefresh(loadDashboard, 30000);
+    </script>
+</body>
+</html>

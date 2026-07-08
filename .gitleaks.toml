@@ -1,0 +1,22 @@
+# gitleaks configuration for Mnemodrome.
+#
+# Used by the release scrub gate (scripts/release/scrub.sh) and intended for the
+# public CI secrets scan. Extends gitleaks' default ruleset and allowlists only
+# specific, audited false positives — NOT a blanket tests/ exemption, so a real
+# secret accidentally committed to a test still trips the gate.
+title = "Mnemodrome gitleaks config"
+
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "Audited false positives in the test suite (dummy values / non-secret keyword args)"
+regexTarget = "match"
+regexes = [
+  # Explicit dummy API key used to exercise the openai-provider install path.
+  # tests/unit/test_install_matrix.py
+  '''sk-dummy-test-key-\d+''',
+  # generic-api-key rule misfiring on a float keyword argument, not a secret.
+  # tests/unit/test_activation_service.py: calculate_activation(..., decay_exponent=0.5)
+  '''decay_exponent=[0-9.]+''',
+]

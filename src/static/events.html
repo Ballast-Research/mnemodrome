@@ -1,0 +1,329 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Event Viewer - Mnemodrome Admin</title>
+    <link rel="stylesheet" href="/admin/static/style.css">
+</head>
+<body>
+    <!-- Navigation -->
+    <nav role="navigation">
+        <div class="nav-content">
+            <a href="/admin" class="nav-brand">Mnemodrome Admin</a>
+            <ul class="nav-links">
+                <li><a href="/admin" data-page="dashboard">Dashboard</a></li>
+                <li><a href="/admin/config-editor" data-page="config">Configuration</a></li>
+                <li><a href="/admin/health-dashboard" data-page="health">Health</a></li>
+                <li><a href="/admin/service" data-page="service">Service</a></li>
+                <li><a href="/admin/event-viewer" data-page="events" class="active">Events</a></li>
+            </ul>
+            <div class="dark-mode-toggle">
+                <button type="button" id="dark-mode-toggle" onclick="toggleDarkMode()" title="Toggle Dark Mode">
+                    <span id="dark-mode-icon">🌙</span>
+                </button>
+            </div>
+        </div>
+    </nav>
+
+    <!-- Main Content -->
+    <main>
+        <!-- Page Header -->
+        <div class="page-header">
+            <h1>Event Viewer</h1>
+            <p>Browse and filter system event logs</p>
+        </div>
+
+        <!-- Filters and Controls -->
+        <div class="card">
+            <h2 class="card-header">Filters and Controls</h2>
+            <div class="card-body">
+                <div class="grid grid-3" style="gap: 1rem;">
+                    <!-- Event Type Filter -->
+                    <div class="form-group" style="margin-bottom: 0;">
+                        <label for="event-type-filter">Event Type</label>
+                        <select id="event-type-filter" onchange="loadEvents()">
+                            <option value="">All Types</option>
+                            <!-- Options populated dynamically -->
+                        </select>
+                    </div>
+
+                    <!-- Limit -->
+                    <div class="form-group" style="margin-bottom: 0;">
+                        <label for="limit-filter">Limit</label>
+                        <select id="limit-filter" onchange="loadEvents()">
+                            <option value="50">50 events</option>
+                            <option value="100" selected>100 events</option>
+                            <option value="250">250 events</option>
+                            <option value="500">500 events</option>
+                        </select>
+                    </div>
+
+                    <!-- Actions -->
+                    <div class="form-group" style="margin-bottom: 0;">
+                        <label>&nbsp;</label>
+                        <div class="btn-group" style="margin-top: 0;">
+                            <button type="button" class="btn btn-primary" onclick="loadEvents()">
+                                Refresh
+                            </button>
+                            <button type="button" class="btn btn-warning" onclick="cleanupEvents()">
+                                Cleanup
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <div style="margin-top: 1rem;">
+                    <span id="last-refresh" class="text-muted">Last updated: --</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- Events Table -->
+        <section aria-labelledby="events-heading" class="mt-3">
+            <div class="card">
+                <h2 id="events-heading" class="card-header">
+                    Event Log
+                    <span id="event-count-badge" class="badge badge-info" style="margin-left: 1rem;">0 events</span>
+                </h2>
+                <div class="card-body" style="padding: 0;">
+                    <div id="events-table-container">
+                        <div class="spinner-container">
+                            <div class="spinner"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Event Details Modal (for future enhancement) -->
+        <!-- This could show detailed metadata for a selected event -->
+    </main>
+
+    <!-- Footer -->
+    <footer>
+        <p>&copy; 2025 Mnemodrome Admin UI</p>
+    </footer>
+
+    <!-- Scripts -->
+    <script src="/admin/static/app.js"></script>
+    <script>
+        // Set active navigation
+        setActiveNavLink('events');
+
+        let autoRefreshInterval = null;
+        let eventTypes = new Set();
+
+        // Load events
+        async function loadEvents() {
+            try {
+                const eventType = document.getElementById('event-type-filter').value;
+                const limit = parseInt(document.getElementById('limit-filter').value, 10);
+
+                // Build query params
+                const params = new URLSearchParams();
+                params.append('limit', limit.toString());
+                if (eventType) {
+                    params.append('event_type', eventType);
+                }
+
+                const data = await apiGet(`/admin/events?${params.toString()}`);
+
+                // Update last refresh timestamp
+                document.getElementById('last-refresh').textContent =
+                    `Last updated: ${new Date().toLocaleTimeString()}`;
+
+                // Update event count badge
+                document.getElementById('event-count-badge').textContent =
+                    `${formatNumber(data.total)} event${data.total !== 1 ? 's' : ''}`;
+
+                // Collect unique event types
+                data.events.forEach(event => {
+                    if (event.event_type) {
+                        eventTypes.add(event.event_type);
+                    }
+                });
+
+                // Update event type filter options
+                updateEventTypeFilter();
+
+                // Render events table
+                renderEventsTable(data.events);
+
+            } catch (error) {
+                handleApiError(error, 'loading events');
+            }
+        }
+
+        // Update event type filter dropdown
+        function updateEventTypeFilter() {
+            const select = document.getElementById('event-type-filter');
+            const currentValue = select.value;
+
+            // Get all options except the "All Types" option
+            const options = Array.from(eventTypes).sort().map(type => `
+                <option value="${escapeHtml(type)}">${escapeHtml(type)}</option>
+            `).join('');
+
+            select.innerHTML = `<option value="">All Types</option>${options}`;
+
+            // Restore selected value if it still exists
+            if (currentValue && eventTypes.has(currentValue)) {
+                select.value = currentValue;
+            }
+        }
+
+        // Render events table
+        function renderEventsTable(events) {
+            const container = document.getElementById('events-table-container');
+
+            if (!events || events.length === 0) {
+                container.innerHTML = `
+                    <div style="padding: 2rem; text-align: center;">
+                        <p class="text-muted">No events found</p>
+                    </div>
+                `;
+                return;
+            }
+
+            const table = document.createElement('table');
+            table.innerHTML = `
+                <thead>
+                    <tr>
+                        <th style="width: 15%;">Timestamp</th>
+                        <th style="width: 12%;">Type</th>
+                        <th style="width: 15%;">Action</th>
+                        <th style="width: 10%;">Actor</th>
+                        <th style="width: 8%;">Result</th>
+                        <th style="width: 40%;">Details</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    ${events.map(event => renderEventRow(event)).join('')}
+                </tbody>
+            `;
+
+            container.innerHTML = '';
+            container.appendChild(table);
+        }
+
+        // Render individual event row
+        function renderEventRow(event) {
+            const timestamp = formatTimestamp(event.timestamp);
+            const eventType = event.event_type || 'unknown';
+            const action = event.action || 'N/A';
+            const actor = event.actor || 'system';
+            const result = event.result || 'unknown';
+
+            // Format details (context + metadata)
+            let details = '';
+            if (event.context && Object.keys(event.context).length > 0) {
+                details += `<strong>Context:</strong> ${JSON.stringify(event.context)}<br>`;
+            }
+            if (event.metadata && Object.keys(event.metadata).length > 0) {
+                details += `<strong>Metadata:</strong> ${JSON.stringify(event.metadata)}`;
+            }
+            if (!details) {
+                details = '<span class="text-muted">No details</span>';
+            }
+
+            // Result badge
+            let resultBadge;
+            if (result === 'success') {
+                resultBadge = '<span class="badge badge-success">Success</span>';
+            } else if (result === 'error') {
+                resultBadge = '<span class="badge badge-error">Error</span>';
+            } else {
+                resultBadge = '<span class="badge badge-info">Unknown</span>';
+            }
+
+            return `
+                <tr>
+                    <td style="font-size: 0.75rem;">${escapeHtml(timestamp)}</td>
+                    <td><span class="badge badge-info">${escapeHtml(eventType)}</span></td>
+                    <td>${escapeHtml(action)}</td>
+                    <td>${escapeHtml(actor)}</td>
+                    <td>${resultBadge}</td>
+                    <td style="font-size: 0.75rem; max-width: 400px; overflow: hidden; text-overflow: ellipsis;">
+                        ${details}
+                    </td>
+                </tr>
+            `;
+        }
+
+        // Cleanup events
+        async function cleanupEvents() {
+            if (!confirm('Trigger event log cleanup? This will delete old events based on retention policy.')) {
+                return;
+            }
+
+            try {
+                showLoading('Cleaning up event logs...');
+
+                const result = await apiPost('/admin/events/cleanup');
+
+                hideLoading();
+
+                const totalDeleted = (result.deleted_age_based || 0) + (result.deleted_size_based || 0);
+
+                if (totalDeleted > 0) {
+                    showSuccess(
+                        `Cleanup complete: ${totalDeleted} event(s) deleted\n` +
+                        `Age-based: ${result.deleted_age_based || 0}, Size-based: ${result.deleted_size_based || 0}`
+                    );
+                } else {
+                    showInfo('No events needed cleanup');
+                }
+
+                // Reload events
+                await loadEvents();
+
+            } catch (error) {
+                hideLoading();
+                handleApiError(error, 'cleaning up events');
+            }
+        }
+
+        // Export events as JSON (future enhancement)
+        function exportEvents() {
+            // Get current events
+            const params = new URLSearchParams();
+            const eventType = document.getElementById('event-type-filter').value;
+            const limit = parseInt(document.getElementById('limit-filter').value, 10);
+
+            params.append('limit', limit.toString());
+            if (eventType) {
+                params.append('event_type', eventType);
+            }
+
+            // Download as JSON
+            fetch(`/admin/events?${params.toString()}`)
+                .then(response => response.json())
+                .then(data => {
+                    const blob = new Blob([JSON.stringify(data.events, null, 2)], {
+                        type: 'application/json'
+                    });
+                    const url = window.URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = `mnemodrome-events-${new Date().toISOString().split('T')[0]}.json`;
+                    document.body.appendChild(a);
+                    a.click();
+                    a.remove();
+                    window.URL.revokeObjectURL(url);
+
+                    showSuccess('Events exported as JSON');
+                })
+                .catch(error => {
+                    handleApiError(error, 'exporting events');
+                });
+        }
+
+        // Initial load
+        loadEvents();
+
+        // Auto-refresh every 30 seconds
+        autoRefreshInterval = setupAutoRefresh(loadEvents, 30000);
+    </script>
+</body>
+</html>

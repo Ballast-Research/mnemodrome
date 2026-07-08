@@ -1,0 +1,37 @@
+# Mnemodrome Unified Memory Service Dependencies
+# Core framework dependencies
+neo4j>=5.26.0,<6.0.0           # Neo4j Python driver with async support
+asyncio-mqtt>=0.16.0           # For potential MQTT transport (future)
+pydantic>=2.5.0                # Data validation and serialization
+qdrant-client>=1.7.0           # Qdrant vector database client (Feature 022)
+httpx>=0.25.0                  # HTTP client for Ollama API (Feature 022)
+aiosqlite>=0.19.0              # SQLite async driver for event logging
+# asyncpg>=0.30.0  # only needed for EVENT_LOG_BACKEND=postgres
+
+# MCP Server dependencies
+websockets>=12.0               # WebSocket support for MCP
+paramiko>=3.4.0                # SSH client library for transport
+cryptography>=41.0.0           # Cryptographic operations
+
+# Admin Web UI dependencies (Feature 010)
+fastapi>=0.115.0               # FastAPI web framework
+uvicorn[standard]>=0.32.0      # ASGI server for FastAPI
+python-multipart>=0.0.9        # Form data parsing
+
+# Development and testing
+pytest>=7.4.0                  # Testing framework
+pytest-asyncio>=0.23.0         # AsyncIO testing support
+testcontainers>=3.7.0          # Neo4j test containers
+black>=23.0.0                  # Code formatting
+ruff>=0.1.0                    # Linting and code analysis
+mypy>=1.7.0                    # Static type checking
+
+# Documentation
+sphinx>=7.0.0                  # Documentation generation
+sphinx-autodoc-typehints>=1.25.0  # Type hints in docs
+
+# Utilities
+python-dotenv>=1.0.0           # Environment variable management
+loguru>=0.7.0                  # Advanced logging
+click>=8.1.0                   # CLI framework
+rich>=13.0.0                   # Rich terminal output

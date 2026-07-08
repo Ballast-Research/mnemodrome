@@ -1,0 +1,160 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@caf0cab7a618c569241d31dcd442f54681755d39 # v3
+
+      - name: Install dependencies
+        run: uv sync
+
+      - name: Lint with ruff
+        run: uv run ruff check .
+
+      - name: Format check with ruff
+        run: uv run ruff format --check .
+
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.11", "3.12"]
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@caf0cab7a618c569241d31dcd442f54681755d39 # v3
+
+      - name: Set up Python
+        run: uv python install ${{ matrix.python-version }}
+
+      - name: Install dependencies
+        run: uv sync
+
+      - name: Run unit tests
+        env:
+          NEO4J_URI: bolt://localhost:7687
+          NEO4J_USER: neo4j
+          NEO4J_PASSWORD: test
+          MNEMODROME_FACTS_PATH: /tmp/mnemodrome/facts
+          MNEMODROME_LEARNINGS_PATH: /tmp/mnemodrome/learnings
+          MNEMODROME_SESSIONS_PATH: /tmp/mnemodrome/sessions
+          MNEMODROME_GRAPHS_PATH: /tmp/mnemodrome/graphs
+          MNEMODROME_UPDATES_PATH: /tmp/mnemodrome/updates
+          MNEMODROME_PROCEDURES_PATH: /tmp/mnemodrome/procedures
+          EVENT_LOG_DB_PATH: /tmp/mnemodrome/events/events.db
+        run: uv run pytest tests/unit/ -v --tb=short
+
+  test-postgres:
+    name: test-postgres (event-log PostgreSQL backend)
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: event_logs
+          POSTGRES_USER: event_log_user
+          POSTGRES_PASSWORD: testpass
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U event_log_user -d event_logs"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@caf0cab7a618c569241d31dcd442f54681755d39 # v3
+
+      - name: Set up Python
+        run: uv python install 3.11
+
+      - name: Install dependencies with postgres extra
+        run: uv sync --extra postgres
+
+      - name: Apply event-logs schema
+        env:
+          PGPASSWORD: testpass
+        run: |
+          psql -h localhost -U event_log_user -d event_logs \
+            -f scripts/init-event-logs.sql
+
+      - name: Run PostgreSQL event-log tests
+        env:
+          EVENT_LOG_POSTGRES_DSN: postgresql://event_log_user:testpass@localhost:5432/event_logs
+          NEO4J_URI: bolt://localhost:7687
+          NEO4J_USER: neo4j
+          NEO4J_PASSWORD: test
+          MNEMODROME_FACTS_PATH: /tmp/mnemodrome/facts
+          MNEMODROME_LEARNINGS_PATH: /tmp/mnemodrome/learnings
+          MNEMODROME_SESSIONS_PATH: /tmp/mnemodrome/sessions
+          MNEMODROME_GRAPHS_PATH: /tmp/mnemodrome/graphs
+          MNEMODROME_UPDATES_PATH: /tmp/mnemodrome/updates
+          MNEMODROME_PROCEDURES_PATH: /tmp/mnemodrome/procedures
+        run: uv run pytest -m postgres tests/integration/test_event_log_postgres.py -v --tb=short
+
+  smoke:
+    runs-on: ubuntu-latest
+    needs: [lint, test]
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@caf0cab7a618c569241d31dcd442f54681755d39 # v3
+
+      - name: Install dependencies
+        run: uv sync
+
+      - name: Verify config loads
+        env:
+          NEO4J_URI: bolt://localhost:7687
+          NEO4J_USER: neo4j
+          NEO4J_PASSWORD: test
+          MNEMODROME_FACTS_PATH: /tmp/mnemodrome/facts
+          MNEMODROME_LEARNINGS_PATH: /tmp/mnemodrome/learnings
+          MNEMODROME_SESSIONS_PATH: /tmp/mnemodrome/sessions
+          MNEMODROME_GRAPHS_PATH: /tmp/mnemodrome/graphs
+          MNEMODROME_UPDATES_PATH: /tmp/mnemodrome/updates
+          MNEMODROME_PROCEDURES_PATH: /tmp/mnemodrome/procedures
+          EVENT_LOG_DB_PATH: /tmp/mnemodrome/events/events.db
+          LLM_PROVIDER: ollama
+          CHAT_MODEL: gemma3:4b-it-qat
+          OLLAMA_EMBEDDING_MODEL: nomic-embed-text
+          ADMIN_WEB_ENABLED: "false"
+        run: uv run python -c "from src.config import MemoryType, validate_llm_config; print('Config OK')"
+
+      - name: Verify MCP server imports
+        env:
+          NEO4J_URI: bolt://localhost:7687
+          NEO4J_USER: neo4j
+          NEO4J_PASSWORD: test
+          MNEMODROME_FACTS_PATH: /tmp/mnemodrome/facts
+          MNEMODROME_LEARNINGS_PATH: /tmp/mnemodrome/learnings
+          MNEMODROME_SESSIONS_PATH: /tmp/mnemodrome/sessions
+          MNEMODROME_GRAPHS_PATH: /tmp/mnemodrome/graphs
+          MNEMODROME_UPDATES_PATH: /tmp/mnemodrome/updates
+          MNEMODROME_PROCEDURES_PATH: /tmp/mnemodrome/procedures
+          EVENT_LOG_DB_PATH: /tmp/mnemodrome/events/events.db
+          LLM_PROVIDER: ollama
+          CHAT_MODEL: gemma3:4b-it-qat
+          OLLAMA_EMBEDDING_MODEL: nomic-embed-text
+          ADMIN_WEB_ENABLED: "false"
+        run: uv run python -c "from src.mcp_server import mcp; print(f'MCP server OK — {len(mcp._tool_manager._tools)} tools registered')"

@@ -1,0 +1,407 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Configuration Editor - Mnemodrome Admin</title>
+    <link rel="stylesheet" href="/admin/static/style.css">
+</head>
+<body>
+    <!-- Navigation -->
+    <nav role="navigation">
+        <div class="nav-content">
+            <a href="/admin" class="nav-brand">Mnemodrome Admin</a>
+            <ul class="nav-links">
+                <li><a href="/admin" data-page="dashboard">Dashboard</a></li>
+                <li><a href="/admin/config-editor" data-page="config" class="active">Configuration</a></li>
+                <li><a href="/admin/health-dashboard" data-page="health">Health</a></li>
+                <li><a href="/admin/service" data-page="service">Service</a></li>
+                <li><a href="/admin/event-viewer" data-page="events">Events</a></li>
+            </ul>
+            <div class="dark-mode-toggle">
+                <button type="button" id="dark-mode-toggle" onclick="toggleDarkMode()" title="Toggle Dark Mode">
+                    <span id="dark-mode-icon">🌙</span>
+                </button>
+            </div>
+        </div>
+    </nav>
+
+    <!-- Main Content -->
+    <main>
+        <!-- Page Header -->
+        <div class="page-header">
+            <h1>Configuration Editor</h1>
+            <p>Manage Mnemodrome MCP Server settings with live validation</p>
+        </div>
+
+        <!-- Configuration Form -->
+        <form id="config-form" aria-labelledby="config-heading">
+            <input type="hidden" id="config-version" value="">
+
+            <!-- Form will be populated dynamically by JavaScript -->
+            <div id="config-form-container">
+                <div class="spinner-container">
+                    <div class="spinner"></div>
+                </div>
+            </div>
+
+            <!-- Action Buttons -->
+            <div class="btn-group mt-4">
+                <button type="submit" class="btn btn-primary" id="save-btn">
+                    Apply Changes
+                </button>
+                <button type="button" class="btn btn-warning" id="undo-btn">
+                    Undo Last Change
+                </button>
+                <button type="button" class="btn btn-secondary" id="reset-btn">
+                    Reset Form
+                </button>
+                <button type="button" class="btn btn-secondary" id="export-btn">
+                    Export .env
+                </button>
+            </div>
+        </form>
+    </main>
+
+    <!-- Footer -->
+    <footer>
+        <p>&copy; 2025 Mnemodrome Admin UI</p>
+    </footer>
+
+    <!-- Scripts -->
+    <script src="/admin/static/app.js"></script>
+    <script>
+        // Set active navigation
+        setActiveNavLink('config');
+
+        let currentConfig = null;
+        let configSchema = {};
+
+        // Load configuration
+        async function loadConfig() {
+            try {
+                showLoading('Loading configuration...');
+                const data = await apiGet('/admin/config');
+                currentConfig = data;
+
+                // Store config version for optimistic locking
+                document.getElementById('config-version').value = data.config_version;
+
+                // Build schema for validation
+                buildSchema(data.categories);
+
+                // Render form
+                renderConfigForm(data.categories);
+
+                hideLoading();
+            } catch (error) {
+                hideLoading();
+                handleApiError(error, 'loading configuration');
+            }
+        }
+
+        // Build configuration schema for validation
+        function buildSchema(categories) {
+            configSchema = {};
+
+            for (const [categoryName, variables] of Object.entries(categories)) {
+                for (const variable of variables) {
+                    configSchema[variable.name] = variable;
+                }
+            }
+        }
+
+        // Render configuration form
+        function renderConfigForm(categories) {
+            const container = document.getElementById('config-form-container');
+            container.innerHTML = '';
+
+            const categoryOrder = ['event_log', 'admin', 'logging', 'neo4j', 'redis'];
+            const categoryTitles = {
+                event_log: 'Event Log Configuration',
+                admin: 'Admin Interface Configuration',
+                logging: 'Logging Configuration',
+                neo4j: 'Neo4j Database Configuration',
+                redis: 'Redis Cache Configuration'
+            };
+
+            for (const categoryName of categoryOrder) {
+                if (!categories[categoryName]) continue;
+
+                const variables = categories[categoryName];
+                const fieldset = document.createElement('fieldset');
+
+                fieldset.innerHTML = `
+                    <legend>${categoryTitles[categoryName]}</legend>
+                    ${variables.map(variable => renderFormGroup(variable)).join('')}
+                `;
+
+                container.appendChild(fieldset);
+            }
+
+            // Add change listeners for validation
+            addValidationListeners();
+        }
+
+        // Render individual form group
+        function renderFormGroup(variable) {
+            const inputId = `input-${variable.name}`;
+            const isBoolean = typeof variable.value === 'boolean';
+            const isDisabled = !variable.editable;
+
+            let inputHtml;
+
+            if (isBoolean) {
+                // Checkbox for boolean values
+                inputHtml = `
+                    <div class="form-group checkbox-group">
+                        <input
+                            type="checkbox"
+                            id="${inputId}"
+                            name="${variable.name}"
+                            ${variable.value ? 'checked' : ''}
+                            ${isDisabled ? 'disabled' : ''}
+                            aria-describedby="${inputId}-desc"
+                        >
+                        <label for="${inputId}">${variable.name}</label>
+                    </div>
+                    <div class="form-description" id="${inputId}-desc">
+                        ${escapeHtml(variable.description)}
+                    </div>
+                `;
+            } else if (variable.name === 'LOG_LEVEL') {
+                // Dropdown for log level
+                const levels = ['DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL'];
+                inputHtml = `
+                    <div class="form-group">
+                        <label for="${inputId}">${variable.name}</label>
+                        <select
+                            id="${inputId}"
+                            name="${variable.name}"
+                            ${isDisabled ? 'disabled' : ''}
+                            aria-describedby="${inputId}-desc"
+                        >
+                            ${levels.map(level => `
+                                <option value="${level}" ${variable.value === level ? 'selected' : ''}>
+                                    ${level}
+                                </option>
+                            `).join('')}
+                        </select>
+                        <div class="form-description" id="${inputId}-desc">
+                            ${escapeHtml(variable.description)}
+                        </div>
+                    </div>
+                `;
+            } else {
+                // Text/number input for other values
+                const inputType = typeof variable.value === 'number' ? 'number' : 'text';
+                inputHtml = `
+                    <div class="form-group">
+                        <label for="${inputId}">${variable.name}</label>
+                        <input
+                            type="${inputType}"
+                            id="${inputId}"
+                            name="${variable.name}"
+                            value="${escapeHtml(String(variable.value))}"
+                            ${isDisabled ? 'disabled' : ''}
+                            aria-describedby="${inputId}-desc"
+                        >
+                        <div class="form-description" id="${inputId}-desc">
+                            ${escapeHtml(variable.description)}
+                        </div>
+                    </div>
+                `;
+            }
+
+            return inputHtml;
+        }
+
+        // Add validation listeners to form inputs
+        function addValidationListeners() {
+            const form = document.getElementById('config-form');
+            const inputs = form.querySelectorAll('input[type="text"], input[type="number"], select');
+
+            inputs.forEach(input => {
+                if (!input.disabled) {
+                    input.addEventListener('input', () => validateField(input));
+                    input.addEventListener('blur', () => validateField(input));
+                }
+            });
+        }
+
+        // Validate individual field
+        function validateField(input) {
+            const name = input.name;
+            const value = input.value;
+            const varConfig = configSchema[name];
+
+            if (!varConfig || !varConfig.editable) return;
+
+            let validation;
+
+            if (name.includes('DAYS') || name.includes('SIZE_MB') || name.includes('HOURS') || name.includes('SLA_MS') || name.includes('PORT')) {
+                const min = name.includes('HOURS') ? 0 : 1;
+                const max = name.includes('PORT') ? 65535 : null;
+                validation = validateInteger(value, min, max);
+            } else if (name === 'LOG_LEVEL') {
+                validation = validateEnum(value, ['DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL']);
+            } else {
+                validation = validateString(value);
+            }
+
+            if (validation.valid) {
+                input.classList.remove('invalid');
+                input.classList.add('valid');
+            } else {
+                input.classList.remove('valid');
+                input.classList.add('invalid');
+            }
+        }
+
+        // Collect form changes
+        function collectFormChanges() {
+            const form = document.getElementById('config-form');
+            const formData = new FormData(form);
+            const changes = {};
+
+            for (const [name, value] of formData.entries()) {
+                const varConfig = configSchema[name];
+                if (!varConfig || !varConfig.editable) continue;
+
+                // Convert value to appropriate type
+                let convertedValue = value;
+
+                if (typeof varConfig.value === 'number') {
+                    convertedValue = parseInt(value, 10);
+                } else if (typeof varConfig.value === 'boolean') {
+                    // Checkbox values
+                    convertedValue = true;
+                }
+
+                // Only include if changed
+                if (convertedValue !== varConfig.value) {
+                    changes[name] = convertedValue;
+                }
+            }
+
+            // Handle unchecked checkboxes
+            for (const [name, varConfig] of Object.entries(configSchema)) {
+                if (typeof varConfig.value === 'boolean' && varConfig.editable) {
+                    if (!formData.has(name) && varConfig.value !== false) {
+                        changes[name] = false;
+                    }
+                }
+            }
+
+            return changes;
+        }
+
+        // Handle form submission
+        document.getElementById('config-form').addEventListener('submit', async (e) => {
+            e.preventDefault();
+
+            const changes = collectFormChanges();
+
+            if (Object.keys(changes).length === 0) {
+                showInfo('No changes to apply');
+                return;
+            }
+
+            // Validate changes
+            const validation = validateConfigChanges(changes, configSchema);
+            if (!validation.valid) {
+                showError('Validation errors:\n' + validation.errors.join('\n'));
+                return;
+            }
+
+            try {
+                showLoading('Applying configuration changes...');
+
+                const configVersion = parseFloat(document.getElementById('config-version').value);
+
+                const result = await apiPost('/admin/config', {
+                    ...changes,
+                    config_version: configVersion
+                });
+
+                hideLoading();
+
+                showSuccess(`Applied ${Object.keys(changes).length} configuration change(s)`);
+
+                // Reload configuration
+                await loadConfig();
+
+            } catch (error) {
+                hideLoading();
+                handleApiError(error, 'applying configuration');
+            }
+        });
+
+        // Handle undo button
+        document.getElementById('undo-btn').addEventListener('click', async () => {
+            if (!confirm('Restore the most recent configuration backup? This will undo your last change.')) {
+                return;
+            }
+
+            try {
+                showLoading('Restoring configuration backup...');
+
+                const result = await apiPost('/admin/config/undo');
+
+                hideLoading();
+
+                showSuccess(`Restored configuration from backup: ${result.backup_file}`);
+
+                // Reload configuration
+                await loadConfig();
+
+            } catch (error) {
+                hideLoading();
+                handleApiError(error, 'restoring configuration');
+            }
+        });
+
+        // Handle reset button
+        document.getElementById('reset-btn').addEventListener('click', () => {
+            if (confirm('Reset all form fields to current saved values?')) {
+                loadConfig();
+            }
+        });
+
+        // Handle export button
+        document.getElementById('export-btn').addEventListener('click', async () => {
+            try {
+                showLoading('Exporting configuration...');
+
+                const response = await fetch('/admin/config/export', {
+                    method: 'GET',
+                });
+
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                }
+
+                const blob = await response.blob();
+                const url = window.URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = '.env';
+                document.body.appendChild(a);
+                a.click();
+                a.remove();
+                window.URL.revokeObjectURL(url);
+
+                hideLoading();
+                showSuccess('Configuration exported as .env file');
+
+            } catch (error) {
+                hideLoading();
+                handleApiError(error, 'exporting configuration');
+            }
+        });
+
+        // Initial load
+        loadConfig();
+    </script>
+</body>
+</html>

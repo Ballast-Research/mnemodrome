@@ -1,0 +1,661 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Service Management - Mnemodrome Admin</title>
+    <link rel="stylesheet" href="/admin/static/style.css">
+    <style>
+        /* Service Management Specific Styles */
+        .service-control-buttons {
+            display: flex;
+            gap: 0.75rem;
+            flex-wrap: wrap;
+        }
+
+        .service-status-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 1rem;
+            margin-bottom: 1.5rem;
+        }
+
+        .status-item {
+            padding: 0.75rem 0;
+            border-bottom: 1px solid var(--border-color);
+        }
+
+        .status-item:last-child {
+            border-bottom: none;
+        }
+
+        .status-label {
+            font-size: 0.875rem;
+            color: var(--text-secondary);
+            display: block;
+            margin-bottom: 0.25rem;
+        }
+
+        .status-value {
+            font-size: 1rem;
+            font-weight: 600;
+            color: var(--text-primary);
+        }
+
+        .deployment-badge {
+            display: inline-block;
+            padding: 0.375rem 0.75rem;
+            border-radius: 9999px;
+            font-size: 0.75rem;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+
+        .deployment-badge.systemd {
+            background-color: #fef3c7;
+            color: #92400e;
+        }
+
+        .deployment-badge.docker {
+            background-color: #dbeafe;
+            color: #1e40af;
+        }
+
+        .log-viewer {
+            background-color: #1f2937;
+            color: #f3f4f6;
+            padding: 1rem;
+            border-radius: var(--border-radius);
+            font-family: 'Monaco', 'Courier New', monospace;
+            font-size: 0.8125rem;
+            line-height: 1.5;
+            overflow-x: auto;
+            max-height: 500px;
+            overflow-y: auto;
+            border: 1px solid #374151;
+        }
+
+        .log-line {
+            margin: 0;
+            padding: 0.25rem 0;
+            white-space: pre-wrap;
+            word-wrap: break-word;
+        }
+
+        .log-error {
+            color: #f87171;
+        }
+
+        .log-warning {
+            color: #fbbf24;
+        }
+
+        .log-info {
+            color: #60a5fa;
+        }
+
+        .log-debug {
+            color: #9ca3af;
+        }
+
+        .collapse-button {
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            background: none;
+            border: none;
+            color: var(--text-primary);
+            font-weight: 600;
+            font-size: 1.125rem;
+            padding: 0;
+            margin-bottom: 1rem;
+        }
+
+        .collapse-button::before {
+            content: '▼';
+            display: inline-block;
+            transition: transform 0.2s;
+            font-size: 0.75rem;
+        }
+
+        .collapse-button.collapsed::before {
+            transform: rotate(-90deg);
+        }
+
+        .collapsible-content {
+            display: none;
+        }
+
+        .collapsible-content.show {
+            display: block;
+        }
+
+        .log-controls {
+            display: flex;
+            gap: 0.75rem;
+            margin-bottom: 1rem;
+            flex-wrap: wrap;
+            align-items: center;
+        }
+
+        .log-controls select {
+            padding: 0.5rem 0.75rem;
+            border: 1px solid var(--border-color);
+            border-radius: var(--border-radius);
+            background-color: var(--bg-secondary);
+            color: var(--text-primary);
+            font-size: 0.875rem;
+        }
+
+        .mt-3 {
+            margin-top: 1.5rem;
+        }
+
+        .mt-4 {
+            margin-top: 2rem;
+        }
+
+        .text-success {
+            color: var(--success-color);
+        }
+
+        .text-error {
+            color: var(--error-color);
+        }
+
+        .text-warning {
+            color: var(--warning-color);
+        }
+
+        .text-muted {
+            color: var(--text-muted);
+        }
+
+        .font-semibold {
+            font-weight: 600;
+        }
+
+        .spinner-sm {
+            width: 16px;
+            height: 16px;
+        }
+
+        .spinner-container {
+            text-align: center;
+            padding: 1rem;
+        }
+
+        /* Service-specific Dark Mode Overrides */
+        body.dark-mode .status-label {
+            color: var(--text-secondary);
+        }
+
+        body.dark-mode .deployment-badge {
+            background-color: var(--bg-tertiary);
+            color: var(--text-primary);
+        }
+
+        body.dark-mode .deployment-badge.systemd {
+            background-color: #4a5568;
+        }
+
+        body.dark-mode .status-value {
+            color: var(--text-primary);
+        }
+
+        /* Additional Information Panel - Dark Mode */
+        body.dark-mode .additional-info-panel {
+            background-color: var(--bg-tertiary);
+            border: 1px solid var(--border-color);
+        }
+
+        body.dark-mode .additional-info-panel h3 {
+            color: var(--text-secondary);
+        }
+
+        body.dark-mode .additional-info-panel .status-label {
+            color: var(--text-secondary);
+        }
+
+        body.dark-mode .additional-info-panel .status-value {
+            color: var(--text-primary);
+        }
+
+        /* Service Logs Collapsible Header - Dark Mode */
+        body.dark-mode .collapse-button {
+            color: var(--text-primary);
+        }
+
+        body.dark-mode .collapse-button:hover {
+            opacity: 0.8;
+        }
+
+        body.dark-mode .collapse-button.collapsed {
+            color: var(--text-primary);
+        }
+
+        /* Responsive Design */
+        @media (max-width: 768px) {
+            .service-status-grid {
+                grid-template-columns: 1fr;
+            }
+
+            .service-control-buttons {
+                flex-direction: column;
+            }
+
+            .service-control-buttons .btn {
+                width: 100%;
+            }
+
+            .grid-2 {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+</head>
+<body>
+    <!-- Navigation -->
+    <nav role="navigation">
+        <div class="nav-content">
+            <a href="/admin" class="nav-brand">Mnemodrome Admin</a>
+            <ul class="nav-links">
+                <li><a href="/admin" data-page="dashboard">Dashboard</a></li>
+                <li><a href="/admin/config-editor" data-page="config">Configuration</a></li>
+                <li><a href="/admin/health-dashboard" data-page="health">Health</a></li>
+                <li><a href="/admin/service" data-page="service" class="active">Service</a></li>
+                <li><a href="/admin/event-viewer" data-page="events">Events</a></li>
+            </ul>
+            <div class="dark-mode-toggle">
+                <button type="button" id="dark-mode-toggle" onclick="toggleDarkMode()" title="Toggle Dark Mode">
+                    <span id="dark-mode-icon">🌙</span>
+                </button>
+            </div>
+        </div>
+    </nav>
+
+    <!-- Main Content -->
+    <main>
+        <!-- Page Header -->
+        <div class="page-header">
+            <h1>Service Management</h1>
+            <p>Monitor and control Mnemodrome MCP Server service</p>
+        </div>
+
+        <!-- Refresh Controls -->
+        <div class="card">
+            <div class="card-body" style="display: flex; justify-content: space-between; align-items: center;">
+                <div>
+                    <span id="last-refresh" class="text-muted">Last updated: --</span>
+                    <span id="polling-status" class="text-muted" style="margin-left: 1rem; font-size: 0.875rem;">Auto-refresh: ON</span>
+                </div>
+                <div style="display: flex; gap: 0.5rem;">
+                    <button type="button" class="btn btn-primary" id="refresh-btn" onclick="loadServiceStatus()">
+                        Refresh Now
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Service Status Card -->
+        <section aria-labelledby="status-heading" class="mt-3">
+            <div class="card">
+                <h2 id="status-heading" class="card-header">Service Status</h2>
+                <div class="card-body">
+                    <div id="service-status-container">
+                        <div class="spinner-container">
+                            <div class="spinner"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Service Control Section -->
+        <section aria-labelledby="control-heading" class="mt-3">
+            <div class="card">
+                <h2 id="control-heading" class="card-header">Service Control</h2>
+                <div class="card-body">
+                    <p style="margin-bottom: 1.5rem; color: var(--text-secondary);">
+                        Manage the Mnemodrome MCP Server service. Choose an action below.
+                    </p>
+                    <div class="service-control-buttons">
+                        <button type="button" class="btn btn-primary" id="restart-btn" onclick="confirmRestart()">
+                            Restart Service
+                        </button>
+                        <button type="button" class="btn btn-warning" id="stop-btn" onclick="confirmStop()">
+                            Stop Service
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Log Viewer Section -->
+        <section aria-labelledby="logs-heading" class="mt-3">
+            <div class="card">
+                <button type="button" class="collapse-button collapsed" id="logs-toggle" onclick="toggleLogViewer()">
+                    Service Logs
+                </button>
+                <div class="collapsible-content" id="logs-content">
+                    <div style="margin-bottom: 1rem;">
+                        <div class="log-controls">
+                            <select id="log-lines" onchange="reloadLogs()">
+                                <option value="100">Last 100 lines</option>
+                                <option value="500" selected>Last 500 lines</option>
+                                <option value="1000">Last 1000 lines</option>
+                            </select>
+                            <button type="button" class="btn btn-primary" id="logs-refresh-btn" onclick="reloadLogs()">
+                                Reload Logs
+                            </button>
+                            <span id="log-last-updated" class="text-muted" style="margin-left: auto;">--</span>
+                        </div>
+                    </div>
+                    <div id="logs-container">
+                        <div class="spinner-container">
+                            <div class="spinner spinner-sm"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+    </main>
+
+    <!-- Footer -->
+    <footer>
+        <p>&copy; 2025 Mnemodrome Admin UI</p>
+    </footer>
+
+    <!-- Scripts -->
+    <script src="/admin/static/app.js"></script>
+    <script>
+        // Set active navigation
+        setActiveNavLink('service');
+
+        let autoRefreshInterval = null;
+        let isOperationInProgress = false;
+
+        function initialize() {
+            loadServiceStatus();
+            // Auto-refresh every 30 seconds
+            autoRefreshInterval = setupAutoRefresh(loadServiceStatus, 30000);
+        }
+
+        // Load service status
+        async function loadServiceStatus() {
+            try {
+                const status = await apiGet('/admin/service/status');
+
+                // Update last refresh timestamp
+                document.getElementById('last-refresh').textContent =
+                    `Last updated: ${new Date().toLocaleTimeString()}`;
+
+                // Update status display
+                updateServiceStatus(status);
+
+            } catch (error) {
+                handleApiError(error, 'loading service status');
+            }
+        }
+
+        // Update service status display
+        function updateServiceStatus(status) {
+            const container = document.getElementById('service-status-container');
+
+            const deploymentType = status.deployment_type || 'unknown';
+            const deploymentBadge = `<span class="deployment-badge ${deploymentType}">${deploymentType}</span>`;
+
+            const stateClass = status.state === 'running' ? 'text-success' : 'text-error';
+            const stateText = status.state || 'unknown';
+
+            const uptime = formatUptime(status.uptime_seconds || 0);
+            const lastUpdate = status.last_updated ? formatTimestamp(status.last_updated) : 'N/A';
+
+            container.innerHTML = `
+                <div class="grid grid-2">
+                    <div>
+                        <div class="service-status-grid">
+                            <div style="padding-bottom: 1rem;">
+                                <div style="display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.75rem;">
+                                    <span class="status-indicator ${status.state === 'running' ? 'healthy' : 'error'}"></span>
+                                    <span class="font-semibold ${stateClass}">
+                                        ${stateText.charAt(0).toUpperCase() + stateText.slice(1)}
+                                    </span>
+                                </div>
+                            </div>
+
+                            <div class="status-item">
+                                <span class="status-label">Uptime</span>
+                                <span class="status-value">${uptime}</span>
+                            </div>
+
+                            <div class="status-item">
+                                <span class="status-label">Version</span>
+                                <span class="status-value">${escapeHtml(status.version || 'Unknown')}</span>
+                            </div>
+
+                            <div class="status-item">
+                                <span class="status-label">Process ID</span>
+                                <span class="status-value">${status.pid || 'N/A'}</span>
+                            </div>
+
+                            <div class="status-item">
+                                <span class="status-label">Memory Usage</span>
+                                <span class="status-value">${formatBytes((status.memory_mb || 0) * 1024 * 1024)}</span>
+                            </div>
+
+                            <div class="status-item">
+                                <span class="status-label">CPU Usage</span>
+                                <span class="status-value">${(status.cpu_percent || 0).toFixed(1)}%</span>
+                            </div>
+
+                            <div class="status-item">
+                                <span class="status-label">Deployment Type</span>
+                                <div style="margin-top: 0.25rem;">
+                                    ${deploymentBadge}
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div>
+                        <div class="additional-info-panel" style="background-color: var(--bg-tertiary); padding: 1rem; border-radius: var(--border-radius);">
+                            <h3 style="margin-bottom: 1rem; font-size: 0.875rem; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.05em;">
+                                Additional Information
+                            </h3>
+                            <div class="status-item">
+                                <span class="status-label">Last Updated</span>
+                                <span class="status-value" style="font-size: 0.9rem;">${lastUpdate}</span>
+                            </div>
+                            <div class="status-item">
+                                <span class="status-label">Service Name</span>
+                                <span class="status-value" style="font-size: 0.85rem; word-break: break-all;">
+                                    ${escapeHtml(status.service_name || 'N/A')}
+                                </span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            `;
+
+            // Update button states based on service state
+            const restartBtn = document.getElementById('restart-btn');
+            const stopBtn = document.getElementById('stop-btn');
+
+            if (isOperationInProgress) {
+                restartBtn.disabled = true;
+                stopBtn.disabled = true;
+            } else {
+                restartBtn.disabled = false;
+                stopBtn.disabled = status.state !== 'running';
+            }
+        }
+
+        // Format uptime
+        function formatUptime(seconds) {
+            if (!seconds || seconds < 0) return 'N/A';
+
+            const days = Math.floor(seconds / 86400);
+            const hours = Math.floor((seconds % 86400) / 3600);
+            const minutes = Math.floor((seconds % 3600) / 60);
+
+            const parts = [];
+            if (days > 0) parts.push(`${days}d`);
+            if (hours > 0) parts.push(`${hours}h`);
+            if (minutes > 0) parts.push(`${minutes}m`);
+
+            return parts.length > 0 ? parts.join(' ') : 'Just started';
+        }
+
+        // Confirm restart operation
+        function confirmRestart() {
+            if (confirm('Are you sure you want to restart the Mnemodrome service? This will cause a brief interruption.')) {
+                restartService();
+            }
+        }
+
+        // Confirm stop operation
+        function confirmStop() {
+            if (confirm('Are you sure you want to stop the Mnemodrome service? This will disable all functionality.')) {
+                stopService();
+            }
+        }
+
+        // Restart service
+        async function restartService() {
+            try {
+                isOperationInProgress = true;
+                updateButtonStates();
+
+                showLoading('Restarting service...');
+
+                const result = await apiPost('/admin/service/restart', { confirm: true });
+
+                hideLoading();
+                showSuccess('Service restart initiated');
+
+                // Wait a bit then reload status
+                await new Promise(r => setTimeout(r, 2000));
+                await loadServiceStatus();
+
+                isOperationInProgress = false;
+                updateButtonStates();
+
+            } catch (error) {
+                hideLoading();
+                isOperationInProgress = false;
+                updateButtonStates();
+                handleApiError(error, 'restarting service');
+            }
+        }
+
+        // Stop service
+        async function stopService() {
+            try {
+                isOperationInProgress = true;
+                updateButtonStates();
+
+                showLoading('Stopping service...');
+
+                const result = await apiPost('/admin/service/stop', { confirm: true });
+
+                hideLoading();
+                showSuccess('Service stop initiated');
+
+                // Wait a bit then reload status
+                await new Promise(r => setTimeout(r, 2000));
+                await loadServiceStatus();
+
+                isOperationInProgress = false;
+                updateButtonStates();
+
+            } catch (error) {
+                hideLoading();
+                isOperationInProgress = false;
+                updateButtonStates();
+                handleApiError(error, 'stopping service');
+            }
+        }
+
+        // Update button states
+        function updateButtonStates() {
+            const restartBtn = document.getElementById('restart-btn');
+            const stopBtn = document.getElementById('stop-btn');
+
+            if (isOperationInProgress) {
+                restartBtn.disabled = true;
+                stopBtn.disabled = true;
+            } else {
+                restartBtn.disabled = false;
+                stopBtn.disabled = false;
+            }
+        }
+
+        // Toggle log viewer
+        function toggleLogViewer() {
+            const toggle = document.getElementById('logs-toggle');
+            const content = document.getElementById('logs-content');
+
+            toggle.classList.toggle('collapsed');
+            content.classList.toggle('show');
+
+            // Load logs when expanded
+            if (content.classList.contains('show')) {
+                reloadLogs();
+            }
+        }
+
+        // Reload logs
+        async function reloadLogs() {
+            try {
+                const lines = document.getElementById('log-lines').value || 500;
+                const container = document.getElementById('logs-container');
+
+                container.innerHTML = '<div class="spinner-container"><div class="spinner spinner-sm"></div></div>';
+
+                const logs = await apiGet(`/admin/service/logs?lines=${lines}`);
+
+                displayLogs(logs);
+
+                document.getElementById('log-last-updated').textContent =
+                    `Loaded: ${new Date().toLocaleTimeString()}`;
+
+            } catch (error) {
+                handleApiError(error, 'loading service logs');
+                document.getElementById('logs-container').innerHTML =
+                    '<p class="text-error">Failed to load logs</p>';
+            }
+        }
+
+        // Display logs with syntax highlighting
+        function displayLogs(logs) {
+            const container = document.getElementById('logs-container');
+
+            if (!logs || !logs.logs || logs.logs.length === 0) {
+                container.innerHTML = '<p class="text-muted">No logs available</p>';
+                return;
+            }
+
+            const logViewer = document.createElement('pre');
+            logViewer.className = 'log-viewer';
+
+            const logLines = logs.logs.map(logLine => {
+                const severity = logLine.severity || 'info';
+                const logClass = `log-${severity.toLowerCase()}`;
+                const message = escapeHtml(logLine.message || logLine);
+
+                return `<div class="log-line ${logClass}">${message}</div>`;
+            }).join('');
+
+            logViewer.innerHTML = logLines;
+            container.innerHTML = '';
+            container.appendChild(logViewer);
+        }
+
+        // Initialize on page load
+        initialize();
+    </script>
+</body>
+</html>

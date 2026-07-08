@@ -1,0 +1,214 @@
+services:
+  # =============================================================================
+  # Layer 1: Graph Database (Neo4j)
+  # Entity relationships, temporal context, graph traversal
+  # =============================================================================
+  neo4j:
+    image: neo4j:5.26-community
+    container_name: mnemodrome-neo4j
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:7474:7474"  # HTTP (localhost only)
+      - "127.0.0.1:7687:7687"  # Bolt
+    environment:
+      - NEO4J_AUTH=neo4j/${NEO4J_PASSWORD:-mnemodrome-dev-password}
+      - NEO4J_PLUGINS=["apoc"]
+      - NEO4J_apoc_export_file_enabled=true
+      - NEO4J_apoc_import_file_enabled=true
+      - NEO4J_dbms_security_procedures_unrestricted=apoc.*
+    volumes:
+      # Bind mounts rooted at DATA_ROOT so data survives container recreation.
+      # DATA_ROOT is set by install.sh and written to .env; defaults to ./data.
+      - ${DATA_ROOT:-./data}/neo4j:/data
+      - ${DATA_ROOT:-./data}/neo4j-logs:/logs
+    networks:
+      - mnemodrome-network
+    healthcheck:
+      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:7474 || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+
+  # =============================================================================
+  # Layer 2: Vector Database (Qdrant)
+  # Semantic similarity search via local Ollama embeddings
+  # =============================================================================
+  qdrant:
+    image: qdrant/qdrant:v1.18.2
+    container_name: mnemodrome-qdrant
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:6333:6333"  # HTTP API
+      - "127.0.0.1:6334:6334"  # gRPC API
+    volumes:
+      - ${DATA_ROOT:-./data}/qdrant:/qdrant/storage
+    networks:
+      - mnemodrome-network
+    environment:
+      - QDRANT__SERVICE__HTTP_PORT=6333
+      - QDRANT__SERVICE__GRPC_PORT=6334
+    healthcheck:
+      # qdrant/qdrant image ships without wget or curl; use bash /dev/tcp instead.
+      test: ["CMD-SHELL", "bash -c '</dev/tcp/localhost/6333' 2>/dev/null || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+
+  # =============================================================================
+  # Layer 3: Cache (Redis)
+  # Hot path optimization, entity resolution (<1ms lookups)
+  # =============================================================================
+  redis:
+    image: redis:7-alpine
+    container_name: mnemodrome-redis
+    restart: unless-stopped
+    command: redis-server --appendonly yes --save 60 1000 --maxmemory-policy noeviction
+    ports:
+      - "127.0.0.1:6379:6379"
+    volumes:
+      - ${DATA_ROOT:-./data}/redis:/data
+    networks:
+      - mnemodrome-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+
+  # =============================================================================
+  # Layer 4: Event Log (PostgreSQL — opt-in)
+  # Session tracking, episodic memory, audit trail.
+  # SQLite (embedded, zero-config) is the default for Layer 4 and requires
+  # no container here.  PostgreSQL is available for concurrent multi-agent
+  # or team deployments via the "postgres" profile:
+  #   docker compose --profile postgres up -d
+  # =============================================================================
+  postgres:
+    image: postgres:16-alpine
+    container_name: mnemodrome-postgres
+    restart: unless-stopped
+    profiles: ["postgres"]
+    ports:
+      - "127.0.0.1:5432:5432"
+    environment:
+      - POSTGRES_DB=event_logs
+      - POSTGRES_USER=event_log_user
+      - POSTGRES_PASSWORD=${PG_PASSWORD:-mnemodrome-dev-password}
+    volumes:
+      - ${DATA_ROOT:-./data}/postgres:/var/lib/postgresql/data
+      - ./scripts/init-event-logs.sql:/docker-entrypoint-initdb.d/01-init-event-logs.sql:ro
+    networks:
+      - mnemodrome-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U event_log_user -d event_logs"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+
+  # =============================================================================
+  # Mnemodrome MCP Server
+  # Exposes all 6 layers as MCP tools via Streamable HTTP transport (default; legacy SSE optional)
+  # Layer 4 (Event Log) defaults to embedded SQLite; switch to PostgreSQL by
+  # setting EVENT_LOG_BACKEND=postgres and using --profile postgres (see below).
+  # Layers 5 (File/Markdown) and 6 (Procedural) use volume mounts, no container.
+  # =============================================================================
+  mcp-server:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: mnemodrome-mcp-server
+    restart: unless-stopped
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    ports:
+      - "8765:8765"  # MCP (Streamable HTTP) transport
+    env_file:
+      - .env
+    environment:
+      # Neo4j connection (internal Docker DNS)
+      - NEO4J_URI=bolt://neo4j:7687
+      - NEO4J_HOST=neo4j
+      - NEO4J_BOLT_PORT=7687
+      - NEO4J_USER=neo4j
+      - NEO4J_PASSWORD=${NEO4J_PASSWORD:-mnemodrome-dev-password}
+      - NEO4J_DATABASE=neo4j
+      # Redis connection (internal Docker DNS)
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - REDIS_DB=0
+      # Qdrant connection (internal Docker DNS)
+      - QDRANT_HOST=qdrant
+      - QDRANT_PORT=6333
+      - QDRANT_GRPC_PORT=6334
+      - QDRANT_ENABLED=${QDRANT_ENABLED:-true}
+      - QDRANT_SIMILARITY_THRESHOLD=${QDRANT_SIMILARITY_THRESHOLD:-0.45}
+      # Ollama (LLM inference — external, runs on the host or a remote server)
+      # Default assumes Ollama running on host machine.
+      # NOTE: localhost/127.0.0.1 from the host must be rewritten to
+      # host.docker.internal inside the container (install.sh does this).
+      - OLLAMA_HOST=${OLLAMA_HOST:-http://host.docker.internal:11434}
+      - OLLAMA_EMBEDDING_HOST=${OLLAMA_EMBEDDING_HOST:-http://host.docker.internal:11434}
+      - OLLAMA_EMBEDDING_MODEL=${OLLAMA_EMBEDDING_MODEL:-nomic-embed-text}
+      - OLLAMA_BASE_URL=${OLLAMA_BASE_URL:-http://host.docker.internal:11434}
+      # Embedding dimension — must match the model's actual output size.
+      # Changing this after collections are created requires re-embedding all data.
+      - EMBEDDING_DIM=${EMBEDDING_DIM:-768}
+      # Admin UI
+      - ADMIN_WEB_ENABLED=${ADMIN_WEB_ENABLED:-false}
+      - ADMIN_WEB_PORT=${ADMIN_WEB_PORT:-8083}
+      - ADMIN_USERNAME=${ADMIN_USERNAME:-admin}
+      - ADMIN_PASSWORD=${ADMIN_PASSWORD:-}
+      # Event Log — defaults to SQLite (embedded, zero-config, no extra container).
+      # To switch to PostgreSQL for concurrent multi-agent or team deployments:
+      #   1. Uncomment the EVENT_LOG_BACKEND and PG_* lines below.
+      #   2. Start with: docker compose --profile postgres up -d
+      # - EVENT_LOG_BACKEND=postgres
+      # - PG_HOST=postgres
+      # - PG_PORT=5432
+      # - PG_DATABASE=event_logs
+      # - PG_USER=event_log_user
+      # - PG_PASSWORD=${PG_PASSWORD:-mnemodrome-dev-password}
+      - EVENT_LOG_ENABLED=${EVENT_LOG_ENABLED:-true}
+      - EVENT_LOG_AUTO_CAPTURE=${EVENT_LOG_AUTO_CAPTURE:-true}
+      - EVENT_LOG_RETENTION_DAYS=${EVENT_LOG_RETENTION_DAYS:-90}
+      - EVENT_LOG_MAX_SIZE_MB=${EVENT_LOG_MAX_SIZE_MB:-100}
+      - EVENT_LOG_SESSION_TIMEOUT_HOURS=${EVENT_LOG_SESSION_TIMEOUT_HOURS:-4}
+      - EVENT_LOG_PERFORMANCE_SLA_MS=${EVENT_LOG_PERFORMANCE_SLA_MS:-50}
+      - EVENT_LOG_QUERY_SLA_MS=${EVENT_LOG_QUERY_SLA_MS:-100}
+      - EVENT_LOG_FAIL_LOUD=${EVENT_LOG_FAIL_LOUD:-true}
+      # File Storage (Layer 5 — Markdown files)
+      - MNEMODROME_FACTS_PATH=/data/mnemodrome/facts
+      - MNEMODROME_LEARNINGS_PATH=/data/mnemodrome/learnings
+      - MNEMODROME_SESSIONS_PATH=/data/mnemodrome/sessions
+      - MNEMODROME_GRAPHS_PATH=/data/mnemodrome/graphs
+      - MNEMODROME_UPDATES_PATH=/data/mnemodrome/updates
+      - MNEMODROME_PROCEDURES_PATH=/data/mnemodrome/procedures
+      # Logging
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - LOG_FILE=/var/log/mnemodrome/mnemodrome.log
+      # MCP Transport
+      - MCP_TRANSPORT=${MCP_TRANSPORT:-streamable-http}
+    volumes:
+      - ${DATA_ROOT:-./data}/mnemodrome:/data/mnemodrome
+      - ${DATA_ROOT:-./data}/mnemodrome-logs:/var/log/mnemodrome
+    depends_on:
+      neo4j:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      qdrant:
+        condition: service_healthy
+    networks:
+      - mnemodrome-network
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:8765/health | grep -q '\"status\"'"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+
+# No named volumes — all data is persisted via bind mounts under DATA_ROOT.
+# DATA_ROOT is set by install.sh (default: ./data relative to install directory).
+
+networks:
+  mnemodrome-network:
+    driver: bridge

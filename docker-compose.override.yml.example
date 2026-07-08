@@ -1,0 +1,96 @@
+# docker-compose.override.yml.example
+# Copy to docker-compose.override.yml and customize for your environment.
+# docker-compose.override.yml is git-ignored and merges automatically with docker-compose.yml.
+
+services:
+  # --- Optional: Containerized Ollama ---
+  # Uncomment to run Ollama in Docker instead of installing on the host.
+  # Requires a GPU-enabled Docker runtime for production performance.
+  # CPU-only mode works but is significantly slower.
+  #
+  # ollama:
+  #   image: ollama/ollama:latest
+  #   container_name: mnemodrome-ollama
+  #   restart: unless-stopped
+  #   ports:
+  #     - "127.0.0.1:11434:11434"
+  #   volumes:
+  #     - ollama_data:/root/.ollama
+  #   networks:
+  #     - mnemodrome-network
+  #   # Uncomment for GPU passthrough (requires nvidia-container-toolkit):
+  #   # deploy:
+  #   #   resources:
+  #   #     reservations:
+  #   #       devices:
+  #   #         - driver: nvidia
+  #   #           count: 1
+  #   #           capabilities: [gpu]
+  #   healthcheck:
+  #     test: ["CMD-SHELL", "curl -sf http://localhost:11434/api/tags || exit 1"]
+  #     interval: 30s
+  #     timeout: 10s
+  #     retries: 5
+
+  # --- Override MCP server settings ---
+  mcp-server:
+    environment:
+      # Point Ollama at containerized instance (uncomment if using ollama service above)
+      # - OLLAMA_HOST=http://ollama:11434
+      # - OLLAMA_EMBEDDING_HOST=http://ollama:11434
+      # - OLLAMA_BASE_URL=http://ollama:11434
+
+      # Or point at a remote Ollama instance
+      # - OLLAMA_HOST=http://your-gpu-host.local:11434
+      # - OLLAMA_EMBEDDING_HOST=http://your-gpu-host.local:11434
+      # - OLLAMA_BASE_URL=http://your-gpu-host.local:11434
+
+      # --- LLM Provider ---
+      # - LLM_PROVIDER=ollama
+      # - CHAT_MODEL=llama3.1
+      # - LLM_BASE_URL=http://your-gpu-host.local:11434
+
+      - PLACEHOLDER=remove_this  # At least one env var needed for valid YAML
+
+    # Uncomment if using containerized Ollama:
+    # depends_on:
+    #   ollama:
+    #     condition: service_healthy
+
+    volumes:
+      # Override named volumes with host paths for persistent storage
+      # Example: mount NAS or external storage for Mnemodrome data
+      # - /path/to/your/mnemodrome-data:/data/mnemodrome
+
+      # --- Development hot-reload ---
+      # Mount source and env file for live code reloading during development.
+      # Remove these in production — docker-compose.yml does NOT include them.
+      - ./src:/app/src
+      - ./.env:/app/.env
+
+  # --- Expose backing stores on network (default: localhost only) ---
+  # Uncomment to make services accessible from other machines.
+  # WARNING: Only do this on trusted networks or behind a firewall.
+  #
+  # neo4j:
+  #   ports:
+  #     - "0.0.0.0:7474:7474"
+  #     - "0.0.0.0:7687:7687"
+  #
+  # redis:
+  #   ports:
+  #     - "0.0.0.0:6379:6379"
+  #
+  # qdrant:
+  #   ports:
+  #     - "0.0.0.0:6333:6333"
+  #     - "0.0.0.0:6334:6334"
+
+  # --- Expose Admin UI ---
+  # mcp-server:
+  #   ports:
+  #     - "8083:8083"
+
+# Uncomment if using containerized Ollama:
+# volumes:
+#   ollama_data:

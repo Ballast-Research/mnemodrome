@@ -1,0 +1,108 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "mnemodrome"
+version = "1.0.0"
+description = "Multi-layer cognitive memory system with epistemic governance for AI agents"
+authors = [
+    {name = "Carlos Mendez", email = "carlos@icarlosmendez.com"}
+]
+readme = "README.md"
+license = {text = "Apache-2.0"}
+requires-python = ">=3.11"
+dependencies = [
+    "mcp==1.16.0",
+    "neo4j>=5.26.0,<6.0.0",
+    "pydantic>=2.5.0",
+    "websockets>=12.0",
+    "paramiko>=3.4.0",
+    "cryptography>=41.0.0",
+    "python-dotenv>=1.0.0",
+    "loguru>=0.7.0",
+    "click>=8.1.0",
+    "rich>=13.0.0",
+    "aiofiles>=23.0.0",
+    "aiosqlite>=0.19.0",
+    "tabulate>=0.9.0",
+    "psutil>=5.9.0",
+    "asyncio-mqtt>=0.16.0",
+    "asyncssh>=2.14.0",
+    "typer>=0.20.0",
+    "redis>=5.0.0",
+    "fastapi>=0.109.0",
+    "uvicorn>=0.27.0",
+    "httpx>=0.27.0",
+    "qdrant-client>=1.12.0",
+    "openai>=1.0.0",
+]
+
+[project.optional-dependencies]
+postgres = [
+    "asyncpg>=0.30.0",
+]
+dev = [
+    "pytest>=7.4.0",
+    "pytest-asyncio>=0.23.0",
+    "testcontainers>=3.7.0",
+    "black>=23.0.0",
+    "ruff>=0.1.0",
+    "mypy>=1.7.0"
+]
+docs = [
+    "sphinx>=7.0.0",
+    "sphinx-autodoc-typehints>=1.25.0"
+]
+
+[tool.black]
+line-length = 88
+target-version = ["py311"]
+include = "\\.pyi?$"
+
+[tool.ruff]
+target-version = "py311"
+line-length = 88
+select = ["E", "F", "W", "I", "N", "UP", "S", "B", "A", "C4", "T20"]
+# Beyond E501/S101, the ignores below are the codes present in the codebase at
+# OSS launch (2026-07-08) after `ruff format` + `ruff check --fix`. They are
+# style/heuristic classes (prints in CLI tools, bandit patterns in tests, etc.)
+# — burn them down incrementally and remove from this list as they hit zero.
+ignore = [
+  "E501", "S101",
+  "T201", "F841", "B904", "B017", "B007", "B008",
+  "S104", "S105", "S108", "S110", "S603", "S607", "S608",
+  "N806", "E402", "E711", "E712", "A002", "C401", "C408", "C416",
+]
+
+[tool.mypy]
+python_version = "3.11"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = true
+check_untyped_defs = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+addopts = "--strict-markers --asyncio-mode=auto -x"
+markers = [
+    "integration: requires live infrastructure services",
+    "performance: performance benchmark tests",
+    "postgres: tests requiring a live PostgreSQL instance",
+    "identity_contract: FR-037 relationship identity contract tests (require Docker)",
+]
+asyncio_mode = "auto"
+
+[dependency-groups]
+dev = [
+    "black>=25.9.0",
+    "mypy>=1.18.2",
+    "pytest>=8.4.2",
+    "pytest-asyncio>=1.2.0",
+    "pytest-cov>=6.0.0",
+    "ruff>=0.13.2",
+    "testcontainers>=4.13.1",
+]
