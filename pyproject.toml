@@ -13,13 +13,13 @@ readme = "README.md"
 license = {text = "Apache-2.0"}
 requires-python = ">=3.11"
 dependencies = [
-    "mcp==1.16.0",
+    "mcp>=1.23.0",
     "neo4j>=5.26.0,<6.0.0",
     "pydantic>=2.5.0",
     "websockets>=12.0",
     "paramiko>=3.4.0",
-    "cryptography>=41.0.0",
-    "python-dotenv>=1.0.0",
+    "cryptography>=48.0.1",
+    "python-dotenv>=1.2.2",
     "loguru>=0.7.0",
     "click>=8.1.0",
     "rich>=13.0.0",
@@ -98,7 +98,7 @@ asyncio_mode = "auto"
 
 [dependency-groups]
 dev = [
-    "black>=25.9.0",
+    "black>=26.3.1",
     "mypy>=1.18.2",
     "pytest>=8.4.2",
     "pytest-asyncio>=1.2.0",
