@@ -4,3 +4,13 @@ updates:
     directory: "/"
     schedule:
       interval: "weekly"
+
+  # Python dependencies (uv.lock). Version updates wait 30 days after a
+  # release, so a compromised upload has time to be found and pulled.
+  # Security updates are not delayed by the cooldown.
+  - package-ecosystem: "uv"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    cooldown:
+      default-days: 30
