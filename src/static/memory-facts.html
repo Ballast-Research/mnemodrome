@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Facts - Mnemodrome Admin</title>
+    <link rel="stylesheet" href="/admin/static/style.css">
+</head>
+<body>
+    <!-- Navigation -->
+    <nav role="navigation">
+        <div class="nav-content">
+            <a href="/admin" class="nav-brand">Mnemodrome Admin</a>
+            <ul class="nav-links">
+                <li><a href="/admin" data-page="dashboard">Dashboard</a></li>
+                <li><a href="/admin/config-editor" data-page="config">Configuration</a></li>
+                <li><a href="/admin/health-dashboard" data-page="health">Health</a></li>
+                <li><a href="/admin/service" data-page="service">Service</a></li>
+                <li><a href="/admin/event-viewer" data-page="events">Events</a></li>
+                <li><a href="/admin/memory" data-page="memory" class="active">Memory</a></li>
+            </ul>
+            <div class="dark-mode-toggle">
+                <button type="button" id="dark-mode-toggle" onclick="toggleDarkMode()" title="Toggle Dark Mode">
+                    <span id="dark-mode-icon">🌙</span>
+                </button>
+            </div>
+        </div>
+    </nav>
+
+    <main>
+        <div class="page-header">
+            <h1>Facts</h1>
+            <p>Relationships stored in the graph layer (Neo4j). Click a row for detail.</p>
+            <p class="memory-subnav">
+                <a href="/admin/memory">Overview</a> ·
+                <a href="/admin/memory/facts">Facts</a> ·
+                <a href="/admin/memory/entities">Entities</a> ·
+                <a href="/admin/memory/search">Search</a> ·
+                <a href="/admin/memory/learnings">Learnings</a> ·
+                <a href="/admin/memory/sessions">Sessions</a> ·
+                <a href="/admin/memory/procedures">Procedures</a> ·
+                <a href="/admin/memory/updates">Updates</a> ·
+                <a href="/admin/memory/graphs">Graphs</a> ·
+                <a href="/admin/event-viewer">Events</a>
+            </p>
+        </div>
+
+        <div class="card">
+            <h2 class="card-header">Filters</h2>
+            <div class="card-body">
+                <div class="grid grid-4" style="gap:1rem;">
+                    <div class="form-group" style="margin-bottom:0;"><label for="f-entity">Entity contains</label><input type="text" id="f-entity" placeholder="e.g. Neo4j"></div>
+                    <div class="form-group" style="margin-bottom:0;"><label for="f-relation">Relation</label><select id="f-relation"><option value="">All relations</option></select></div>
+                    <div class="form-group" style="margin-bottom:0;"><label for="f-validity">Validity</label><select id="f-validity"><option value="all">All</option><option value="valid">Valid</option><option value="invalidated">Invalidated</option><option value="superseded">Superseded</option></select></div>
+                    <div class="form-group" style="margin-bottom:0;"><label for="f-limit">Per page</label><select id="f-limit"><option>25</option><option selected>50</option><option>100</option><option>200</option></select></div>
+                    <div class="form-group" style="margin-bottom:0;"><label for="f-since">Created from</label><input type="date" id="f-since"></div>
+                    <div class="form-group" style="margin-bottom:0;"><label for="f-until">Created to</label><input type="date" id="f-until"></div>
+                    <div class="form-group" style="margin-bottom:0;"><label>&nbsp;</label><div class="btn-group" style="margin-top:0;"><button type="button" class="btn btn-primary" onclick="loadFacts(0)">Apply</button><button type="button" class="btn btn-secondary" onclick="resetFilters()">Reset</button></div></div>
+                </div>
+            </div>
+        </div>
+
+        <section class="mt-3">
+            <div class="card">
+                <h2 class="card-header">Facts <span id="facts-badge" class="badge badge-info" style="margin-left:1rem;">--</span></h2>
+                <div class="card-body" style="padding:0;">
+                    <div id="facts-table"><div class="spinner-container"><div class="spinner"></div></div></div>
+                    <div id="facts-pager"></div>
+                </div>
+            </div>
+        </section>
+
+    </main>
+
+    <footer>
+        <p>&copy; 2025 Mnemodrome Admin UI &mdash; Memory Browser is read-only</p>
+    </footer>
+
+    <script src="/admin/static/app.js"></script>
+    <script src="/admin/static/memory.js"></script>
+    <script>
+        setActiveNavLink('memory');
+
+        const F = { offset: parseInt(qp('offset', '0'), 10) || 0 };
+        document.getElementById('f-entity').value = qp('entity');
+        document.getElementById('f-validity').value = qp('validity', 'all');
+        document.getElementById('f-since').value = qp('since');
+        document.getElementById('f-until').value = qp('until');
+        if (qp('limit')) document.getElementById('f-limit').value = qp('limit');
+        document.getElementById('f-entity').addEventListener('keydown', e => { if (e.key === 'Enter') loadFacts(0); });
+
+        function filters() {
+            return {
+                entity: document.getElementById('f-entity').value.trim(),
+                relation: document.getElementById('f-relation').value,
+                validity: document.getElementById('f-validity').value,
+                since: document.getElementById('f-since').value,
+                until: document.getElementById('f-until').value,
+                limit: document.getElementById('f-limit').value,
+            };
+        }
+        function resetFilters() {
+            ['f-entity', 'f-since', 'f-until'].forEach(id => document.getElementById(id).value = '');
+            document.getElementById('f-relation').value = '';
+            document.getElementById('f-validity').value = 'all';
+            loadFacts(0);
+        }
+        async function loadRelations() {
+            try {
+                const r = await apiGet(`${MEMORY_API}/facts/relations`);
+                const sel = document.getElementById('f-relation');
+                sel.innerHTML = '<option value="">All relations</option>' + r.items.map(i => `<option value="${escapeHtml(i.relation)}">${escapeHtml(i.relation)} (${formatNumber(i.count)})</option>`).join('');
+                sel.value = qp('relation');
+            } catch (e) { /* dropdown stays empty; listing still works */ }
+        }
+        async function loadFacts(offset) {
+            F.offset = offset;
+            const f = filters();
+            const params = new URLSearchParams({ offset: String(offset), limit: f.limit, validity: f.validity });
+            ['entity', 'relation', 'since', 'until'].forEach(k => { if (f[k]) params.set(k, f[k]); });
+            setQuery({ ...f, offset: offset || '' , uuid: qp('uuid') });
+            const table = document.getElementById('facts-table');
+            table.innerHTML = spinnerHtml();
+            try {
+                const d = await apiGet(`${MEMORY_API}/facts?${params}`);
+                document.getElementById('facts-badge').textContent = `${formatNumber(d.total)} match`;
+                if (!d.items.length) { table.innerHTML = emptyHtml('No facts match these filters'); }
+                else {
+                    table.innerHTML = `<table><thead><tr><th>Created</th><th>Entity 1</th><th>Relation</th><th>Entity 2</th><th>Status</th><th>Conf.</th></tr></thead><tbody>${
+                        d.items.map(x => `<tr class="memory-row-click" data-uuid="${escapeHtml(x.uuid)}">
+                            <td style="font-size:0.75rem;">${escapeHtml(shortDate(x.created_at))}</td>
+                            <td>${escapeHtml(x.entity1 || '')}</td>
+                            <td><span class="badge badge-info">${escapeHtml(x.relation || '')}</span></td>
+                            <td>${escapeHtml(x.entity2 || '')}</td>
+                            <td>${statusBadge(x.status)}</td>
+                            <td>${x.confidence === null || x.confidence === undefined ? '—' : escapeHtml(Number(x.confidence).toFixed(2))}</td>
+                        </tr>`).join('')}</tbody></table>`;
+                    table.querySelectorAll('tr[data-uuid]').forEach(tr => tr.addEventListener('click', () => showFact(tr.dataset.uuid, tr)));
+                }
+                renderPager('facts-pager', d, loadFacts);
+            } catch (e) { table.innerHTML = emptyHtml(e.message); handleApiError(e, 'loading facts'); }
+        }
+        async function showFact(uuid, row) {
+            document.querySelectorAll('.memory-row-selected').forEach(r => r.classList.remove('memory-row-selected'));
+            if (row) row.classList.add('memory-row-selected');
+            setQuery({ uuid });
+            openPanel('Fact', spinnerHtml());
+            try {
+                const x = await apiGet(`${MEMORY_API}/facts/${encodeURIComponent(uuid)}`);
+                const link = (name, id) => id ? `<a href="/admin/memory/entities?uuid=${encodeURIComponent(id)}">${escapeHtml(name || '')}</a>` : escapeHtml(name || '');
+                let html = `
+                    <p style="font-size:1.05rem;"><strong>${link(x.entity1, x.entity1_uuid)}</strong>
+                       <span class="badge badge-info">${escapeHtml(x.relation || '')}</span>
+                       <strong>${link(x.entity2, x.entity2_uuid)}</strong> ${statusBadge(x.status)}</p>
+                    ${x.context ? `<p>${escapeHtml(x.context)}</p>` : ''}
+                    <h3>Timestamps</h3>${kvTable({ created_at: shortDate(x.created_at), valid_at: shortDate(x.valid_at), invalid_at: shortDate(x.invalid_at), expired_at: shortDate(x.expired_at), invalidation_reason: x.invalidation_reason })}
+                    <h3>Provenance</h3>${kvTable({ uuid: x.uuid, confidence: x.confidence, source_session: x.session_id || '(not recorded)', source: x.source, entity1_type: x.entity1_type, entity2_type: x.entity2_type })}`;
+                if (x.superseded_by || (x.previous_uuids && x.previous_uuids.length)) {
+                    html += `<h3>Supersession chain</h3>${kvTable({ superseded_by: x.superseded_by, supersedes: (x.previous_uuids || []).join(', ') })}`;
+                    const links = [x.superseded_by, ...(x.previous_uuids || [])].filter(Boolean);
+                    html += `<p>${links.map(u => `<a href="#" onclick="showFact('${escapeHtml(u)}');return false;">${escapeHtml(u.slice(0, 8))}…</a>`).join(' · ')}</p>`;
+                }
+                if (x.file) {
+                    html += `<h3>Markdown file</h3><p><a href="#" onclick="showFile('facts', '${escapeHtml(x.file.name)}');return false;">${escapeHtml(x.file.name)}</a> <span class="text-muted">(${shortDate(x.file.modified)})</span></p>`;
+                } else {
+                    html += `<h3>Markdown file</h3><p class="text-muted">No matching file found on disk (matched by entity slug and capture time).</p>`;
+                }
+                openPanel('Fact', html);
+            } catch (e) { openPanel('Fact', `<p class="badge badge-error">${escapeHtml(e.message)}</p>`); }
+        }
+        loadRelations().then(() => loadFacts(F.offset));
+        if (qp('uuid')) showFact(qp('uuid'));
+
+    </script>
+</body>
+</html>

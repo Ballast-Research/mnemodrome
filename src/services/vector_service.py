@@ -1488,31 +1488,40 @@ class VectorService:
 _vector_service: VectorService | None = None
 
 
+def create_vector_service() -> VectorService:
+    """
+    Build a VectorService from environment configuration (not initialized).
+
+    The Admin UI (Feature 039) uses this to own an instance on its own event
+    loop: the embedder's httpx.AsyncClient is bound to the loop that made it.
+    """
+    enabled = os.getenv("QDRANT_ENABLED", "true").lower() == "true"
+    qdrant_host = os.getenv("QDRANT_HOST", "localhost")
+    qdrant_port = int(os.getenv("QDRANT_PORT", "6333"))
+    ollama_host = os.getenv(
+        "OLLAMA_EMBEDDING_HOST", os.getenv("OLLAMA_HOST", "http://localhost:11434")
+    )
+    ollama_fallback = os.getenv("OLLAMA_FALLBACK_URL", "")
+    embedding_model = os.getenv("OLLAMA_EMBEDDING_MODEL", "nomic-embed-text")
+    threshold = float(os.getenv("QDRANT_SIMILARITY_THRESHOLD", "0.45"))
+
+    return VectorService(
+        qdrant_host=qdrant_host,
+        qdrant_port=qdrant_port,
+        ollama_host=ollama_host,
+        ollama_fallback_host=ollama_fallback,
+        embedding_model=embedding_model,
+        similarity_threshold=threshold,
+        enabled=enabled,
+    )
+
+
 def get_vector_service() -> VectorService:
     """Get or create singleton vector service instance."""
     global _vector_service
 
     if _vector_service is None:
-        # Read configuration from environment
-        enabled = os.getenv("QDRANT_ENABLED", "true").lower() == "true"
-        qdrant_host = os.getenv("QDRANT_HOST", "localhost")
-        qdrant_port = int(os.getenv("QDRANT_PORT", "6333"))
-        ollama_host = os.getenv(
-            "OLLAMA_EMBEDDING_HOST", os.getenv("OLLAMA_HOST", "http://localhost:11434")
-        )
-        ollama_fallback = os.getenv("OLLAMA_FALLBACK_URL", "")
-        embedding_model = os.getenv("OLLAMA_EMBEDDING_MODEL", "nomic-embed-text")
-        threshold = float(os.getenv("QDRANT_SIMILARITY_THRESHOLD", "0.45"))
-
-        _vector_service = VectorService(
-            qdrant_host=qdrant_host,
-            qdrant_port=qdrant_port,
-            ollama_host=ollama_host,
-            ollama_fallback_host=ollama_fallback,
-            embedding_model=embedding_model,
-            similarity_threshold=threshold,
-            enabled=enabled,
-        )
+        _vector_service = create_vector_service()
 
     assert _vector_service is not None
     return _vector_service

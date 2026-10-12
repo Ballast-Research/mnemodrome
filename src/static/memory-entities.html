@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Entities - Mnemodrome Admin</title>
+    <link rel="stylesheet" href="/admin/static/style.css">
+</head>
+<body>
+    <!-- Navigation -->
+    <nav role="navigation">
+        <div class="nav-content">
+            <a href="/admin" class="nav-brand">Mnemodrome Admin</a>
+            <ul class="nav-links">
+                <li><a href="/admin" data-page="dashboard">Dashboard</a></li>
+                <li><a href="/admin/config-editor" data-page="config">Configuration</a></li>
+                <li><a href="/admin/health-dashboard" data-page="health">Health</a></li>
+                <li><a href="/admin/service" data-page="service">Service</a></li>
+                <li><a href="/admin/event-viewer" data-page="events">Events</a></li>
+                <li><a href="/admin/memory" data-page="memory" class="active">Memory</a></li>
+            </ul>
+            <div class="dark-mode-toggle">
+                <button type="button" id="dark-mode-toggle" onclick="toggleDarkMode()" title="Toggle Dark Mode">
+                    <span id="dark-mode-icon">🌙</span>
+                </button>
+            </div>
+        </div>
+    </nav>
+
+    <main>
+        <div class="page-header">
+            <h1>Entities</h1>
+            <p>Pick an entity to see its relationships as a table and a graph.</p>
+            <p class="memory-subnav">
+                <a href="/admin/memory">Overview</a> ·
+                <a href="/admin/memory/facts">Facts</a> ·
+                <a href="/admin/memory/entities">Entities</a> ·
+                <a href="/admin/memory/search">Search</a> ·
+                <a href="/admin/memory/learnings">Learnings</a> ·
+                <a href="/admin/memory/sessions">Sessions</a> ·
+                <a href="/admin/memory/procedures">Procedures</a> ·
+                <a href="/admin/memory/updates">Updates</a> ·
+                <a href="/admin/memory/graphs">Graphs</a> ·
+                <a href="/admin/event-viewer">Events</a>
+            </p>
+        </div>
+
+        <div class="grid grid-2" style="gap:1rem;align-items:start;">
+            <div class="card">
+                <h2 class="card-header">Entities <span id="entities-badge" class="badge badge-info" style="margin-left:1rem;">--</span></h2>
+                <div class="card-body" style="padding:1rem 1rem 0;">
+                    <div class="form-group"><input type="text" id="e-query" placeholder="Search entity names… (Enter)"></div>
+                </div>
+                <div class="card-body" style="padding:0;">
+                    <div id="entities-table"><div class="spinner-container"><div class="spinner"></div></div></div>
+                    <div id="entities-pager"></div>
+                </div>
+            </div>
+            <div class="card">
+                <h2 class="card-header" id="entity-title">Select an entity</h2>
+                <div class="card-body">
+                    <div id="entity-meta"></div>
+                    <div id="entity-graph" class="mt-3"></div>
+                </div>
+                <div class="card-body" style="padding:0;">
+                    <div id="entity-rels"></div>
+                </div>
+            </div>
+        </div>
+
+    </main>
+
+    <footer>
+        <p>&copy; 2025 Mnemodrome Admin UI &mdash; Memory Browser is read-only</p>
+    </footer>
+
+    <script src="/admin/static/app.js"></script>
+    <script src="/admin/static/memory.js"></script>
+    <script>
+        setActiveNavLink('memory');
+
+        const LIMIT = 50;
+        document.getElementById('e-query').value = qp('q');
+        document.getElementById('e-query').addEventListener('keydown', e => { if (e.key === 'Enter') loadEntities(0); });
+
+        async function loadEntities(offset) {
+            const q = document.getElementById('e-query').value.trim();
+            setQuery({ q, offset: offset || '', uuid: qp('uuid') });
+            const params = new URLSearchParams({ offset: String(offset), limit: String(LIMIT) });
+            if (q) params.set('q', q);
+            const table = document.getElementById('entities-table');
+            table.innerHTML = spinnerHtml();
+            try {
+                const d = await apiGet(`${MEMORY_API}/entities?${params}`);
+                document.getElementById('entities-badge').textContent = `${formatNumber(d.total)} entities`;
+                if (!d.items.length) { table.innerHTML = emptyHtml('No entities found'); }
+                else {
+                    table.innerHTML = `<table><thead><tr><th>Name</th><th>Type</th><th>Out</th><th>In</th></tr></thead><tbody>${
+                        d.items.map(x => `<tr class="memory-row-click" data-uuid="${escapeHtml(x.uuid)}">
+                            <td>${escapeHtml(x.name || '')}</td><td><span class="badge badge-info">${escapeHtml(x.entity_type || '')}</span></td>
+                            <td>${formatNumber(x.outgoing || 0)}</td><td>${formatNumber(x.incoming || 0)}</td></tr>`).join('')}</tbody></table>`;
+                    table.querySelectorAll('tr[data-uuid]').forEach(tr => tr.addEventListener('click', () => showEntity(tr.dataset.uuid)));
+                }
+                renderPager('entities-pager', d, loadEntities);
+            } catch (e) { table.innerHTML = emptyHtml(e.message); handleApiError(e, 'loading entities'); }
+        }
+        async function showEntity(uuid) {
+            setQuery({ uuid });
+            document.querySelectorAll('.memory-row-selected').forEach(r => r.classList.remove('memory-row-selected'));
+            const row = document.querySelector(`tr[data-uuid="${CSS.escape(uuid)}"]`);
+            if (row) row.classList.add('memory-row-selected');
+            document.getElementById('entity-title').textContent = 'Loading…';
+            document.getElementById('entity-rels').innerHTML = spinnerHtml();
+            try {
+                const x = await apiGet(`${MEMORY_API}/entities/${encodeURIComponent(uuid)}`);
+                document.getElementById('entity-title').textContent = x.name || uuid;
+                document.getElementById('entity-meta').innerHTML = kvTable({ uuid: x.uuid, type: x.entity_type, summary: x.summary, created: shortDate(x.created_at), access_count: x.access_count, relationships: x.relationship_count + (x.truncated ? ' (truncated)' : '') });
+                renderEntityGraph('entity-graph', x.name || '?', x.relationships, showEntity);
+                const rels = x.relationships || [];
+                document.getElementById('entity-rels').innerHTML = rels.length ? `<table><thead><tr><th>Dir</th><th>Relation</th><th>Other entity</th><th>Status</th><th>Created</th></tr></thead><tbody>${
+                    rels.map(r => `<tr>
+                        <td>${r.direction === 'out' ? '→' : '←'}</td>
+                        <td><a href="/admin/memory/facts?uuid=${encodeURIComponent(r.uuid)}"><span class="badge badge-info">${escapeHtml(r.relation || '')}</span></a></td>
+                        <td><a href="#" onclick="showEntity('${escapeHtml(r.other_uuid)}');return false;">${escapeHtml(r.other_name || '')}</a></td>
+                        <td>${statusBadge(r.status)}</td>
+                        <td style="font-size:0.75rem;">${escapeHtml(shortDate(r.created_at))}</td></tr>`).join('')}</tbody></table>` : emptyHtml('No relationships');
+            } catch (e) { document.getElementById('entity-rels').innerHTML = emptyHtml(e.message); handleApiError(e, 'loading entity'); }
+        }
+        loadEntities(parseInt(qp('offset', '0'), 10) || 0);
+        if (qp('uuid')) showEntity(qp('uuid'));
+
+    </script>
+</body>
+</html>

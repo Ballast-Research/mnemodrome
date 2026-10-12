@@ -302,13 +302,14 @@ LLM_BASE_URL=http://localhost:11434
 OLLAMA_EMBEDDING_HOST=http://localhost:11434
 OLLAMA_EMBEDDING_MODEL=nomic-embed-text
 
-# Storage paths (create these directories)
-MNEMODROME_FACTS_PATH=$HOME/.mnemodrome/facts
-MNEMODROME_LEARNINGS_PATH=$HOME/.mnemodrome/learnings
-MNEMODROME_SESSIONS_PATH=$HOME/.mnemodrome/sessions
-MNEMODROME_GRAPHS_PATH=$HOME/.mnemodrome/graphs
-MNEMODROME_UPDATES_PATH=$HOME/.mnemodrome/updates
-MNEMODROME_PROCEDURES_PATH=$HOME/.mnemodrome/procedures
+# Storage root for Markdown memory files. Each type lives in
+# $MNEMODROME_STORAGE_PATH/<type> (facts, learnings, sessions, graphs,
+# updates, procedures).
+MNEMODROME_STORAGE_PATH=$HOME/.mnemodrome
+
+# Optional: move one type somewhere else (e.g. into an Obsidian vault).
+# A per-type var overrides only that folder.
+# MNEMODROME_LEARNINGS_PATH=$HOME/Documents/MyVault/Inbox/Learnings
 
 # MCP Server
 MCP_PORT=8765
@@ -320,6 +321,8 @@ MCP_HOST=0.0.0.0
 ```bash
 mkdir -p ~/.mnemodrome/{facts,learnings,sessions,graphs,updates,procedures,events}
 ```
+
+(The server also creates missing type folders under `MNEMODROME_STORAGE_PATH` on startup.)
 
 ### Step 10: Start Mnemodrome MCP Server
 
@@ -527,6 +530,53 @@ ECHO: Hello Mnemodrome
 
 ---
 
+## Admin UI and Memory Browser
+
+The Admin UI is a small FastAPI app that runs in the same process as the MCP server. It hosts the configuration editor, health dashboard, event viewer, service controls, and the **Memory Browser**, a read-only view of every memory layer (facts and entities from Neo4j, semantic search through Qdrant, events, and the Markdown files on disk).
+
+It is **off by default**. To enable it, set in `.env`:
+
+```bash
+ADMIN_WEB_ENABLED=true
+ADMIN_USERNAME=admin
+ADMIN_PASSWORD=<long random password>   # e.g. openssl rand -base64 32
+ADMIN_WEB_PORT=8083                      # optional
+```
+
+Restart the server and open `http://localhost:8083/admin/memory`. The browser asks for the username and password (HTTP Basic auth).
+
+**Network exposure**
+
+- Docker Compose publishes the port as `127.0.0.1:8083` on the host only.
+- A bare-metal install binds to `127.0.0.1`. `ADMIN_WEB_HOST=0.0.0.0` opens it to the network; only do that behind a firewall or reverse proxy.
+- The Admin UI speaks plain HTTP. Put a TLS reverse proxy in front of it to reach it from other machines.
+
+**nginx reverse proxy example**
+
+```nginx
+server {
+    listen 443 ssl;
+    server_name memory.example.internal;
+    ssl_certificate     /etc/letsencrypt/live/memory.example.internal/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/memory.example.internal/privkey.pem;
+
+    location / {
+        proxy_pass         http://127.0.0.1:8083;
+        proxy_set_header   Host              $host;
+        proxy_set_header   X-Real-IP         $remote_addr;
+        proxy_set_header   X-Forwarded-Proto https;
+        # Optional second factor: allow only your networks
+        # allow 192.168.0.0/16; deny all;
+    }
+}
+```
+
+**Memory Browser notes**
+
+- Lists are paginated on the server (max 200 rows per page) so 30,000+ items stay fast.
+- File folders are scanned once into an in-memory index cached for `MEMORY_BROWSER_FILE_INDEX_TTL` seconds (default 300). The **Refresh index** button rescans on demand; use it after bulk imports.
+- The Memory Browser never writes. Edits and deletes are not available from the UI.
+
 ## Running as Service
 
 **Docker Compose is the recommended deployment method** for production. Use the systemd/launchd sections below only for manual (non-Docker) deployments.
@@ -679,8 +729,10 @@ brew services start redis  # macOS
 
 **Create missing directories**:
 ```bash
-mkdir -p ~/.mnemodrome/{facts,learnings,sessions,graphs}
+mkdir -p ~/.mnemodrome/{facts,learnings,sessions,graphs,updates,procedures}
 ```
+
+**"No storage path configured"**: set `MNEMODROME_STORAGE_PATH` (one root for all types) or the per-type `MNEMODROME_<TYPE>_PATH` variable named in the error.
 
 **Check permissions**:
 ```bash

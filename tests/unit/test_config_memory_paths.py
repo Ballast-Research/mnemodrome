@@ -16,6 +16,7 @@ ALL_STORAGE_VARS = [
     "MNEMODROME_GRAPHS_PATH",
     "MNEMODROME_UPDATES_PATH",
     "MNEMODROME_PROCEDURES_PATH",
+    "MNEMODROME_STORAGE_PATH",
 ]
 
 
@@ -173,3 +174,66 @@ class TestValidateConfig:
             validate_config()
         assert "Missing required environment variables" in str(exc_info.value)
         assert "NEO4J_URI" in str(exc_info.value)
+
+
+class TestUmbrellaStoragePath:
+    """Feature 039: MNEMODROME_STORAGE_PATH umbrella with per-type overrides."""
+
+    @patch.dict(os.environ, {}, clear=False)
+    def test_umbrella_defaults_every_type(self):
+        """Each type resolves to <umbrella>/<type> when only the umbrella is set."""
+        _clear_storage_vars()
+        os.environ["MNEMODROME_STORAGE_PATH"] = "/vault/mnemodrome"
+        for memory_type in MemoryType:
+            assert (
+                get_memory_path(memory_type)
+                == Path("/vault/mnemodrome") / memory_type.value
+            )
+
+    @patch.dict(os.environ, {}, clear=False)
+    def test_per_type_var_overrides_one_folder_only(self):
+        """A per-type var overrides its own folder; the others keep the umbrella."""
+        _clear_storage_vars()
+        os.environ["MNEMODROME_STORAGE_PATH"] = "/vault/mnemodrome"
+        os.environ["MNEMODROME_LEARNINGS_PATH"] = "/obsidian/inbox/learnings"
+        assert get_memory_path(MemoryType.LEARNING) == Path("/obsidian/inbox/learnings")
+        assert get_memory_path(MemoryType.FACT) == Path("/vault/mnemodrome/facts")
+        assert get_memory_path(MemoryType.SESSION) == Path("/vault/mnemodrome/sessions")
+
+    @patch.dict(os.environ, {}, clear=False)
+    def test_all_six_per_type_vars_still_work_without_umbrella(self):
+        """Backward compatibility: installs that set all six vars are unchanged."""
+        _clear_storage_vars()
+        for memory_type in MemoryType:
+            os.environ[f"MNEMODROME_{memory_type.value.upper()}_PATH"] = (
+                f"/legacy/{memory_type.value}"
+            )
+        for memory_type in MemoryType:
+            assert get_memory_path(memory_type) == Path(f"/legacy/{memory_type.value}")
+
+    @patch.dict(os.environ, {}, clear=False)
+    def test_error_only_when_neither_is_set(self):
+        """Error names both the umbrella and the per-type var."""
+        _clear_storage_vars()
+        with pytest.raises(ValueError) as exc_info:
+            get_memory_path(MemoryType.PROCEDURE)
+        message = str(exc_info.value)
+        assert "MNEMODROME_STORAGE_PATH" in message
+        assert "MNEMODROME_PROCEDURES_PATH" in message
+
+    @patch.dict(
+        os.environ,
+        {
+            "NEO4J_URI": "bolt://localhost:7687",
+            "NEO4J_USER": "neo4j",
+            "NEO4J_PASSWORD": "password",
+            "LLM_PROVIDER": "ollama",
+            "CHAT_MODEL": "test-model",
+        },
+        clear=False,
+    )
+    def test_validate_config_accepts_umbrella_alone(self):
+        """validate_config passes when only the umbrella is set."""
+        _clear_storage_vars()
+        os.environ["MNEMODROME_STORAGE_PATH"] = "/vault/mnemodrome"
+        validate_config()

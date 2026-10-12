@@ -122,6 +122,10 @@ services:
       - "host.docker.internal:host-gateway"
     ports:
       - "8765:8765"  # MCP (Streamable HTTP) transport
+      # Admin UI + Memory Browser. Published on the host's loopback only;
+      # put a TLS reverse proxy in front to reach it from elsewhere.
+      # Requires ADMIN_WEB_ENABLED=true and ADMIN_PASSWORD in .env.
+      - "127.0.0.1:${ADMIN_WEB_PORT:-8083}:8083"
     env_file:
       - .env
     environment:
@@ -155,7 +159,8 @@ services:
       - EMBEDDING_DIM=${EMBEDDING_DIM:-768}
       # Admin UI
       - ADMIN_WEB_ENABLED=${ADMIN_WEB_ENABLED:-false}
-      - ADMIN_WEB_PORT=${ADMIN_WEB_PORT:-8083}
+      - ADMIN_WEB_HOST=0.0.0.0  # inside the container only; host side is loopback
+      - ADMIN_WEB_PORT=8083
       - ADMIN_USERNAME=${ADMIN_USERNAME:-admin}
       - ADMIN_PASSWORD=${ADMIN_PASSWORD:-}
       # Event Log — defaults to SQLite (embedded, zero-config, no extra container).
@@ -177,12 +182,11 @@ services:
       - EVENT_LOG_QUERY_SLA_MS=${EVENT_LOG_QUERY_SLA_MS:-100}
       - EVENT_LOG_FAIL_LOUD=${EVENT_LOG_FAIL_LOUD:-true}
       # File Storage (Layer 5 — Markdown files)
-      - MNEMODROME_FACTS_PATH=/data/mnemodrome/facts
-      - MNEMODROME_LEARNINGS_PATH=/data/mnemodrome/learnings
-      - MNEMODROME_SESSIONS_PATH=/data/mnemodrome/sessions
-      - MNEMODROME_GRAPHS_PATH=/data/mnemodrome/graphs
-      - MNEMODROME_UPDATES_PATH=/data/mnemodrome/updates
-      - MNEMODROME_PROCEDURES_PATH=/data/mnemodrome/procedures
+      # MNEMODROME_STORAGE_PATH is the umbrella: each type lives in
+      # /data/mnemodrome/<type> (facts, learnings, sessions, graphs, updates,
+      # procedures). To move ONE type elsewhere, add its per-type var, e.g.
+      # - MNEMODROME_LEARNINGS_PATH=/vault/Inbox/Learnings (and bind-mount it).
+      - MNEMODROME_STORAGE_PATH=/data/mnemodrome
       # Logging
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
       - LOG_FILE=/var/log/mnemodrome/mnemodrome.log

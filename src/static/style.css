@@ -984,3 +984,84 @@ body.dark-mode .text-secondary {
 .font-semibold {
     font-weight: 600;
 }
+
+/* ============================================================================
+   Memory Browser (Feature 039)
+   ============================================================================ */
+
+.memory-pager {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 0.75rem;
+    padding: 0.75rem 1rem;
+    border-top: 1px solid var(--border-color);
+}
+
+.memory-pager-page {
+    padding: 0 0.75rem;
+    color: var(--text-secondary);
+    font-size: 0.875rem;
+}
+
+.memory-row-click { cursor: pointer; }
+.memory-row-click:hover td { background-color: var(--bg-secondary); }
+.memory-row-selected td { background-color: var(--bg-secondary); font-weight: 500; }
+
+.memory-kv { width: 100%; font-size: 0.875rem; }
+.memory-kv th { width: 30%; text-align: left; vertical-align: top; color: var(--text-secondary); font-weight: 500; }
+.memory-kv td { word-break: break-word; }
+
+.memory-panel {
+    position: fixed;
+    top: 0;
+    right: 0;
+    height: 100vh;
+    width: min(640px, 100vw);
+    background-color: var(--bg-primary);
+    border-left: 1px solid var(--border-color);
+    box-shadow: var(--shadow-md);
+    transform: translateX(100%);
+    transition: transform 0.2s ease;
+    z-index: 900;
+    display: flex;
+    flex-direction: column;
+}
+.memory-panel.open { transform: translateX(0); }
+.memory-panel-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    padding: 1rem;
+    border-bottom: 1px solid var(--border-color);
+}
+.memory-panel-header h2 { font-size: 1.1rem; margin: 0; word-break: break-word; }
+.memory-panel-body { padding: 1rem; overflow-y: auto; flex: 1; }
+.memory-panel-body h3 { font-size: 0.95rem; margin: 1rem 0 0.5rem; }
+
+.memory-markdown { line-height: 1.6; font-size: 0.925rem; }
+.memory-markdown h1 { font-size: 1.4rem; margin-top: 1rem; }
+.memory-markdown h2 { font-size: 1.15rem; margin-top: 1rem; }
+.memory-markdown h3 { font-size: 1rem; margin-top: 0.75rem; }
+.memory-markdown pre { background-color: var(--bg-secondary); padding: 0.75rem; overflow-x: auto; border-radius: var(--border-radius); }
+.memory-markdown code { background-color: var(--bg-secondary); padding: 0 0.25rem; border-radius: 3px; font-size: 0.85em; }
+.memory-markdown pre code { background: none; padding: 0; }
+.memory-markdown blockquote { border-left: 3px solid var(--border-color); margin: 0.5rem 0; padding-left: 0.75rem; color: var(--text-secondary); }
+.memory-markdown table { font-size: 0.85rem; }
+
+.memory-graph { width: 100%; max-width: 560px; height: auto; display: block; margin: 0 auto; }
+.memory-graph-edge { stroke: var(--text-secondary); stroke-width: 1.5; }
+.memory-graph-edge.status-invalidated { stroke-dasharray: 5 4; opacity: 0.6; }
+.memory-graph-edge.status-superseded { stroke-dasharray: 2 3; opacity: 0.5; }
+.memory-graph-arrow { fill: var(--text-secondary); }
+.memory-graph-edge-label { font-size: 9px; fill: var(--text-secondary); }
+.memory-graph-node circle { fill: var(--bg-secondary); stroke: var(--primary-color, #2563eb); stroke-width: 2; }
+.memory-graph-node.centre circle { fill: var(--primary-color, #2563eb); }
+.memory-graph-node text { font-size: 11px; fill: var(--text-primary); }
+.memory-graph-node:hover circle { stroke-width: 3; }
+
+.memory-search-score { font-variant-numeric: tabular-nums; }
+.memory-path { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.8rem; word-break: break-all; }
+.memory-layer-grid .status-card-value { font-size: 1.6rem; }

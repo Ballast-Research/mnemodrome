@@ -85,8 +85,8 @@ TRANSFER-*.md
 # Sweep/audit results
 sweep-*.tsv
 
-# Internal design specs (not shipped in OSS release)
-specs/
+# SpecKit tooling (local only)
+.specify/
 
 # Personal infrastructure artifacts
 pipelines/

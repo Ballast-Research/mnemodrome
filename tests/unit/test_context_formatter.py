@@ -32,7 +32,7 @@ class TestFormatContextMarkdown:
         """Test formatting a single relationship."""
         results = [
             {
-                "source": {"name": "Carlos", "summary": "A developer"},
+                "source": {"name": "Alice", "summary": "A developer"},
                 "r": {"type": "USES"},
                 "target": {"name": "Neo4j", "summary": "Graph database"},
             }
@@ -41,7 +41,7 @@ class TestFormatContextMarkdown:
 
         assert "Recent Context" in result
         assert "1 relationship(s)" in result
-        assert "Carlos → Neo4j" in result
+        assert "Alice → Neo4j" in result
         assert "USES" in result
         assert "A developer" in result
         assert "Graph database" in result
@@ -137,10 +137,10 @@ class TestFormatContextMarkdown:
         """issue #97: the edge's own r.context must be rendered."""
         results = [
             {
-                "source": {"name": "Carlos", "summary": "A developer"},
+                "source": {"name": "Alice", "summary": "A developer"},
                 "r": {
                     "type": "USES",
-                    "context": "Carlos uses Neo4j for the graph layer",
+                    "context": "Alice uses Neo4j for the graph layer",
                 },
                 "target": {"name": "Neo4j", "summary": "Graph database"},
             }
@@ -148,7 +148,7 @@ class TestFormatContextMarkdown:
         result = format_context_markdown(results)
 
         assert "**Context**" in result
-        assert "Carlos uses Neo4j for the graph layer" in result
+        assert "Alice uses Neo4j for the graph layer" in result
 
     def test_format_distinct_edge_context_per_relationship(self):
         """issue #97: distinct per-edge context must render even when the
