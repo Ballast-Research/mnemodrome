@@ -115,16 +115,19 @@ Then connect your MCP client:
 }
 ```
 
-**Claude Desktop** (`claude_desktop_config.json`):
+**Claude Desktop** (`claude_desktop_config.json`) — the desktop app runs local MCP servers as **stdio subprocesses**, so it connects through the [`mcp-remote`](https://www.npmjs.com/package/mcp-remote) bridge rather than a raw URL:
 ```json
 {
   "mcpServers": {
     "mnemodrome": {
-      "url": "http://localhost:8765/mcp"
+      "command": "npx",
+      "args": ["-y", "mcp-remote", "http://localhost:8765/mcp", "--transport", "http-only"]
     }
   }
 }
 ```
+- **Mnemodrome on another host (LAN):** replace `localhost` with its IP **and add `--allow-http`** to the args — `mcp-remote` refuses plain HTTP to a non-localhost URL otherwise.
+- **macOS PATH gotcha:** GUI apps launch with a minimal `PATH`. If the app can't find `npx`, use an absolute path (e.g. `/usr/local/bin/npx`) and add `"env": { "PATH": "/usr/local/bin:/usr/bin:/bin" }`.
 
 Mnemodrome defaults to the **Streamable HTTP** transport (the current MCP standard, spec 2025-03-26+), served at `http://<host>:8765/mcp`.
 
@@ -133,6 +136,22 @@ Mnemodrome defaults to the **Streamable HTTP** transport (the current MCP standa
 Any MCP-compatible client works, and that includes automation agents, not only interactive assistants. A scheduled or background agent (Hermes, OpenClaw, or any MCP-capable runner) connects to the same server with the same read and write access to the memory substrate as Claude Code, Codex, or Claude Desktop. Your automations and your interactive sessions share one memory. Mnemodrome exposes all six layers as stateless RPC endpoints.
 
 **See [INSTALLATION.md](INSTALLATION.md) for manual setup and flag reference.**
+
+---
+
+## Client compatibility & limitations
+
+Mnemodrome is **self-hosted**: it runs on your machine or your LAN and answers at `http://<host>:8765/mcp`. It works from any client that **executes locally** and can open a connection to that address:
+
+- **Claude Code CLI** (terminal) — direct HTTP.
+- **A regular Claude Desktop chat** — via the `mcp-remote` stdio bridge (see above).
+- **Cursor, and any MCP-capable runner** on the same host or LAN — including background/automation agents.
+
+> **⚠️ Cloud/hosted Claude sessions cannot reach a self-hosted Mnemodrome.**
+>
+> Some Claude surfaces run in **Anthropic's cloud**, not on your machine — notably **claude.ai on the web** and the **"Claude Code" / cowork mode inside the Claude Desktop app**. These execute in a remote container and can only see account-level remote connectors; they **cannot** connect to a server on your `localhost` or LAN. If one of them reports that it "can't see" Mnemodrome's tools, nothing is broken — switch to a locally-executing client (the Claude Code CLI, or a regular Desktop chat). Reaching Mnemodrome from a cloud session would require exposing it on a public HTTPS URL behind OAuth, which the self-hosted edition does not do by design.
+
+**Coming later: a hosted Mnemodrome.** A hosted edition — reachable from *every* Claude surface, cloud sessions included, without you running the stack yourself — is on the roadmap. No timeline yet. If that would be useful to you, we want to hear it: tell us how you'd want to use it in **[GitHub Discussions](https://github.com/Ballast-Research/mnemodrome/discussions)**. Demand is what moves it up the list.
 
 ---
 
@@ -331,11 +350,54 @@ SQLite serializes writes and is ideal for a single user or a few agents. For sim
 
 **See [.env.example](.env.example) for all configuration options.**
 
+### Where the Markdown files live
+
+One variable sets the root for the file layer; each memory type gets a folder under it:
+
+```bash
+MNEMODROME_STORAGE_PATH=./data/mnemodrome   # -> facts/, learnings/, sessions/, graphs/, updates/, procedures/
+```
+
+To move a single type somewhere else (for example learnings into an Obsidian vault), set its per-type variable; the others keep using the root:
+
+```bash
+MNEMODROME_LEARNINGS_PATH=/home/you/Vault/Inbox/Learnings
+```
+
+Installs that set all six `MNEMODROME_*_PATH` variables keep working without the root.
+
+---
+
+## Memory Browser (Admin UI)
+
+Mnemodrome ships a read-only web view of everything it remembers, so you can audit memory without Obsidian or a database client and at any size (tested with 28,000+ fact files and 50,000 graph facts):
+
+- **Overview**: counts per layer, storage paths, backend health.
+- **Facts**: paginated list from Neo4j; filter by entity, relation, validity (valid / invalidated / superseded), and date; click for the full triple, timestamps, confidence, supersession chain, and the fact's Markdown file.
+- **Entities**: pick an entity, see its relationships as a table and an inline graph.
+- **Search**: one box, semantic search through Qdrant, results link to the matching fact, learning, or session.
+- **Learnings, Sessions, Procedures, Updates, Graphs**: newest first from the file layer, rendered Markdown with the header block on top.
+
+Every page reads the layer where it lives. Nothing is copied or re-indexed; large folders are listed once into a cached index with a manual refresh.
+
+**Enable it** (off by default):
+
+```bash
+ADMIN_WEB_ENABLED=true
+ADMIN_PASSWORD=<a long random password>     # openssl rand -base64 32
+```
+
+Then open `http://localhost:8083/admin/memory` (HTTP Basic auth, user `admin`). With Docker Compose the port is published on the host's loopback only. On a bare-metal install it binds to `127.0.0.1` unless you set `ADMIN_WEB_HOST`. To reach it from another machine put a TLS reverse proxy in front; see [INSTALLATION.md](INSTALLATION.md#admin-ui-and-memory-browser) for an nginx example.
+
+The Admin UI also hosts the configuration editor, health dashboard, event viewer, and service controls.
+
+---
+
 ---
 
 ## Documentation
 
-- **[Installation Guide](INSTALLATION.md)**: Docker Compose quickstart and manual setup
+- **[Installation Guide](INSTALLATION.md)**: Docker Compose quickstart, manual setup, Admin UI and Memory Browser
 - **[Contributing](CONTRIBUTING.md)**: How to contribute
 - **[Security Policy](SECURITY.md)**: Vulnerability reporting
 

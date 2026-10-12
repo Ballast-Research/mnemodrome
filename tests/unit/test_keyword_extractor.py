@@ -41,8 +41,8 @@ class TestExtractKeywords:
 
     def test_extract_keywords_capitalized_word(self):
         """Test that capitalized words are recognized as keywords."""
-        result = extract_keywords("Tell me about Carlos")
-        assert result == "carlos"
+        result = extract_keywords("Tell me about Alice")
+        assert result == "alice"
 
     def test_extract_keywords_mixed_case(self):
         """Test keyword extraction from mixed case text."""

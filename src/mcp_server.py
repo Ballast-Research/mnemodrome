@@ -5195,11 +5195,13 @@ async def run_admin_server():
     from src import config
     from src.admin_ui import app
 
-    logger.info(f"Starting Admin Web UI on port {config.ADMIN_WEB_PORT}...")
+    logger.info(
+        f"Starting Admin Web UI on {config.ADMIN_WEB_HOST}:{config.ADMIN_WEB_PORT}..."
+    )
 
-    # Run uvicorn server
+    # Run uvicorn server (loopback by default; see ADMIN_WEB_HOST)
     uvicorn_config = uvicorn.Config(
-        app, host="0.0.0.0", port=config.ADMIN_WEB_PORT, log_level="info"
+        app, host=config.ADMIN_WEB_HOST, port=config.ADMIN_WEB_PORT, log_level="info"
     )
     server = uvicorn.Server(uvicorn_config)
     await server.serve()

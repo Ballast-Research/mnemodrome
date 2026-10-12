@@ -747,6 +747,224 @@ async def cleanup_events(admin: str = Depends(verify_admin)):
 
 
 # ============================================================================
+# Memory Browser Endpoints (Feature 039) — read-only
+# ============================================================================
+
+
+def _memory_type(type_name: str) -> "config.MemoryType":
+    try:
+        return config.MemoryType(type_name)
+    except ValueError:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Unknown memory type: {type_name}",
+        )
+
+
+@app.get("/admin/api/memory/overview")
+async def memory_overview(admin: str = Depends(verify_admin)):
+    """Counts, storage paths, and backend health for every memory layer."""
+    from src.services import memory_browser_service as mb
+
+    return JSONResponse(content=await mb.overview())
+
+
+@app.get("/admin/api/memory/facts")
+async def memory_facts(
+    entity: str | None = None,
+    relation: str | None = None,
+    validity: str = "all",
+    since: str | None = None,
+    until: str | None = None,
+    offset: int = Query(0, ge=0),
+    limit: int = Query(50, ge=1, le=200),
+    admin: str = Depends(verify_admin),
+):
+    """Paginated facts from Neo4j with entity / relation / validity / date filters."""
+    from src.services import memory_browser_service as mb
+
+    try:
+        result = await mb.graph_browser.list_facts(
+            entity=entity,
+            relation=relation,
+            validity=validity,
+            since=since,
+            until=until,
+            offset=offset,
+            limit=limit,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+    except Exception as e:
+        logger.error(f"Memory browser: fact listing failed: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=f"Graph layer unavailable: {e}",
+        )
+    return JSONResponse(content=result)
+
+
+@app.get("/admin/api/memory/facts/relations")
+async def memory_fact_relations(admin: str = Depends(verify_admin)):
+    """Distinct relation types with counts (for the filter dropdown)."""
+    from src.services import memory_browser_service as mb
+
+    try:
+        return JSONResponse(content={"items": await mb.graph_browser.relation_types()})
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=f"Graph layer unavailable: {e}",
+        )
+
+
+@app.get("/admin/api/memory/facts/{fact_uuid}")
+async def memory_fact_detail(fact_uuid: str, admin: str = Depends(verify_admin)):
+    """One fact: triple, timestamps, confidence, chain, and its markdown file if found."""
+    from src.services import memory_browser_service as mb
+
+    try:
+        fact = await mb.graph_browser.get_fact(fact_uuid)
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=f"Graph layer unavailable: {e}",
+        )
+    if fact is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Fact not found"
+        )
+    return JSONResponse(content=fact)
+
+
+@app.get("/admin/api/memory/entities")
+async def memory_entities(
+    q: str | None = None,
+    offset: int = Query(0, ge=0),
+    limit: int = Query(50, ge=1, le=200),
+    admin: str = Depends(verify_admin),
+):
+    """Paginated entity list with relationship degree."""
+    from src.services import memory_browser_service as mb
+
+    try:
+        result = await mb.graph_browser.list_entities(
+            query=q, offset=offset, limit=limit
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=f"Graph layer unavailable: {e}",
+        )
+    return JSONResponse(content=result)
+
+
+@app.get("/admin/api/memory/entities/{entity_uuid}")
+async def memory_entity_detail(
+    entity_uuid: str,
+    limit: int = Query(200, ge=1, le=1000),
+    admin: str = Depends(verify_admin),
+):
+    """One entity with its incoming and outgoing relationships."""
+    from src.services import memory_browser_service as mb
+
+    try:
+        entity = await mb.graph_browser.get_entity(entity_uuid, limit=limit)
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=f"Graph layer unavailable: {e}",
+        )
+    if entity is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Entity not found"
+        )
+    return JSONResponse(content=entity)
+
+
+@app.get("/admin/api/memory/search")
+async def memory_search(
+    q: str = Query(..., min_length=1, max_length=2000),
+    search_type: str = Query("all", pattern="^(all|facts|learnings|sessions|prompts)$"),
+    limit: int = Query(20, ge=1, le=200),
+    min_score: float | None = Query(None, ge=0.0, le=1.0),
+    admin: str = Depends(verify_admin),
+):
+    """Semantic search through the existing Qdrant vector service."""
+    from src.services import memory_browser_service as mb
+
+    try:
+        result = await mb.semantic_search(
+            q, search_type=search_type, limit=limit, min_score=min_score
+        )
+    except Exception as e:
+        logger.error(f"Memory browser: semantic search failed: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=f"Vector layer unavailable: {e}",
+        )
+    return JSONResponse(content=result)
+
+
+@app.post("/admin/api/memory/files/refresh")
+async def memory_files_refresh(
+    type_name: str | None = Query(None, alias="type"),
+    admin: str = Depends(verify_admin),
+):
+    """Rebuild the cached file index (all types, or one)."""
+    from src.services import memory_browser_service as mb
+
+    memory_type = _memory_type(type_name) if type_name else None
+    result = await mb.file_index.refresh(memory_type)
+    logger.info(f"Memory browser: file index refreshed by {admin}")
+    return JSONResponse(content={"status": "refreshed", "types": result})
+
+
+@app.get("/admin/api/memory/files/{type_name}")
+async def memory_files(
+    type_name: str,
+    q: str | None = None,
+    offset: int = Query(0, ge=0),
+    limit: int = Query(50, ge=1, le=200),
+    admin: str = Depends(verify_admin),
+):
+    """Paginated, newest-first file listing for one memory type."""
+    from src.services import memory_browser_service as mb
+
+    memory_type = _memory_type(type_name)
+    try:
+        result = await mb.file_index.page(
+            memory_type, offset=offset, limit=limit, query=q
+        )
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(e)
+        )
+    return JSONResponse(content=result)
+
+
+@app.get("/admin/api/memory/files/{type_name}/{name}")
+async def memory_file_detail(
+    type_name: str, name: str, admin: str = Depends(verify_admin)
+):
+    """One markdown file rendered to HTML with its header block."""
+    from src.services import memory_browser_service as mb
+
+    memory_type = _memory_type(type_name)
+    try:
+        result = await mb.file_index.read(memory_type, name)
+    except FileNotFoundError:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="File not found"
+        )
+    except ValueError:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid file name"
+        )
+    return JSONResponse(content=result)
+
+
+# ============================================================================
 # Static Files and HTML Pages
 # ============================================================================
 
@@ -829,6 +1047,44 @@ async def service_management(admin: str = Depends(verify_admin)):
     except Exception as e:
         logger.error(f"Failed to load service.html: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# Memory Browser pages (Feature 039)
+_MEMORY_PAGES = {
+    "": "memory.html",
+    "facts": "memory-facts.html",
+    "entities": "memory-entities.html",
+    "search": "memory-search.html",
+    "learnings": "memory-files.html",
+    "sessions": "memory-files.html",
+    "procedures": "memory-files.html",
+    "updates": "memory-files.html",
+    "graphs": "memory-files.html",
+}
+
+
+def _serve_static_page(filename: str, title: str) -> HTMLResponse:
+    html_path = Path("src/static") / filename
+    if not html_path.exists():
+        return HTMLResponse(content=f"<h1>{title}</h1><p>Coming soon...</p>")
+    return HTMLResponse(content=html_path.read_text())
+
+
+@app.get("/admin/memory", response_class=HTMLResponse)
+async def memory_browser_home(admin: str = Depends(verify_admin)):
+    """Memory Browser landing page."""
+    return _serve_static_page(_MEMORY_PAGES[""], "Memory Browser")
+
+
+@app.get("/admin/memory/{view}", response_class=HTMLResponse)
+async def memory_browser_view(view: str, admin: str = Depends(verify_admin)):
+    """Memory Browser sub-pages (facts, entities, search, and file-layer views)."""
+    filename = _MEMORY_PAGES.get(view)
+    if filename is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Unknown view"
+        )
+    return _serve_static_page(filename, "Memory Browser")
 
 
 # Mount static files (CSS, JS, etc.)

@@ -31,7 +31,7 @@ class TestGraphFactory:
     @pytest.mark.asyncio
     async def test_build_from_extraction_basic(self, factory):
         """Test building a graph from basic context."""
-        context = "Carlos created a tool called FastMCP"
+        context = "Alice created a tool called FastMCP"
 
         with patch("src.services.graph_factory.llm_service") as mock_llm:
             with patch("src.services.graph_factory.entity_factory") as mock_entity:
@@ -42,12 +42,12 @@ class TestGraphFactory:
                     mock_llm.extract_entities_and_relationships = AsyncMock(
                         return_value={
                             "entities": [
-                                {"name": "Carlos", "role": "person"},
+                                {"name": "Alice", "role": "person"},
                                 {"name": "FastMCP", "role": "tool"},
                             ],
                             "relationships": [
                                 {
-                                    "source": "Carlos",
+                                    "source": "Alice",
                                     "relation": "CREATED",
                                     "target": "FastMCP",
                                 }
@@ -63,7 +63,7 @@ class TestGraphFactory:
                     # Mock entity resolution
                     mock_entity.batch_create_or_resolve = AsyncMock(
                         return_value={
-                            "Carlos:Person": "uuid-carlos",
+                            "Alice:Person": "uuid-alice",
                             "FastMCP:Technology": "uuid-fastmcp",
                         }
                     )
@@ -72,7 +72,7 @@ class TestGraphFactory:
                     mock_rel.batch_create = AsyncMock(
                         return_value=[
                             {
-                                "source_uuid": "uuid-carlos",
+                                "source_uuid": "uuid-alice",
                                 "relation_type": "CREATED",
                                 "target_uuid": "uuid-fastmcp",
                             }
@@ -83,7 +83,7 @@ class TestGraphFactory:
 
                     assert result["entities_created"] == 2
                     assert result["relationships_created"] == 1
-                    assert "Carlos" in result["entity_uuids"]
+                    assert "Alice" in result["entity_uuids"]
                     assert "FastMCP" in result["entity_uuids"]
 
     @pytest.mark.asyncio
@@ -212,7 +212,7 @@ class TestGraphFactory:
     @pytest.mark.asyncio
     async def test_build_from_extraction_missing_uuid(self, factory):
         """Test handling when entity resolution fails."""
-        context = "Carlos and Alice worked together"
+        context = "Dana and Alice worked together"
 
         with patch("src.services.graph_factory.llm_service") as mock_llm:
             with patch("src.services.graph_factory.entity_factory") as mock_entity:
@@ -222,12 +222,12 @@ class TestGraphFactory:
                     mock_llm.extract_entities_and_relationships = AsyncMock(
                         return_value={
                             "entities": [
-                                {"name": "Carlos", "role": "person"},
+                                {"name": "Dana", "role": "person"},
                                 {"name": "Alice", "role": "person"},
                             ],
                             "relationships": [
                                 {
-                                    "source": "Carlos",
+                                    "source": "Dana",
                                     "relation": "WORKED_WITH",
                                     "target": "Alice",
                                 }
@@ -242,7 +242,7 @@ class TestGraphFactory:
                     # Only one entity resolves - missing one
                     mock_entity.batch_create_or_resolve = AsyncMock(
                         return_value={
-                            "Carlos:Person": "uuid-carlos"
+                            "Dana:Person": "uuid-dana"
                             # Alice missing
                         }
                     )
@@ -281,7 +281,7 @@ class TestGraphFactory:
     @pytest.mark.asyncio
     async def test_extract_with_llm_failure_falls_back(self, factory):
         """Test that heuristic extraction is used when LLM fails."""
-        context = "Carlos created FastMCP for Neo4j"
+        context = "Alice created FastMCP for Neo4j"
 
         with patch("src.services.graph_factory.llm_service") as mock_llm:
             mock_llm.extract_entities_and_relationships = AsyncMock(
@@ -294,7 +294,7 @@ class TestGraphFactory:
             assert "entities" in result
             assert "relationships" in result
             # Heuristic should extract capitalized words
-            assert any(e["name"] == "Carlos" for e in result["entities"])
+            assert any(e["name"] == "Alice" for e in result["entities"])
 
     # ========================
     # Heuristic Extraction Tests
@@ -303,12 +303,12 @@ class TestGraphFactory:
     @pytest.mark.asyncio
     async def test_heuristic_extraction_capitalized_words(self, factory):
         """Test heuristic extraction identifies capitalized words."""
-        context = "Carlos and Alice worked on Project X"
+        context = "Dana and Alice worked on Project X"
 
         result = await factory._heuristic_extraction(context)
 
         entity_names = [e["name"] for e in result["entities"]]
-        assert "Carlos" in entity_names
+        assert "Dana" in entity_names
         assert "Alice" in entity_names
         # Heuristic captures multi-word entities
         assert any("Project" in name for name in entity_names)
@@ -326,7 +326,7 @@ class TestGraphFactory:
     @pytest.mark.asyncio
     async def test_heuristic_extraction_patterns(self, factory):
         """Test heuristic extracts relationship patterns."""
-        context = "Carlos and Bob collaborated together"
+        context = "Alice and Bob collaborated together"
 
         result = await factory._heuristic_extraction(context)
 
@@ -364,7 +364,7 @@ class TestGraphFactory:
     @pytest.mark.asyncio
     async def test_classification_batch_call(self, factory):
         """Test that batch classification is called with correct data."""
-        context = "Carlos works with Neo4j on Phase 4"
+        context = "Alice works with Neo4j on Phase 4"
 
         with patch("src.services.graph_factory.llm_service") as mock_llm:
             with patch("src.services.graph_factory.entity_factory") as mock_entity:
@@ -374,7 +374,7 @@ class TestGraphFactory:
                     mock_llm.extract_entities_and_relationships = AsyncMock(
                         return_value={
                             "entities": [
-                                {"name": "Carlos", "role": "person"},
+                                {"name": "Alice", "role": "person"},
                                 {"name": "Neo4j", "role": "database"},
                             ],
                             "relationships": [],
@@ -387,7 +387,7 @@ class TestGraphFactory:
 
                     mock_entity.batch_create_or_resolve = AsyncMock(
                         return_value={
-                            "Carlos:Person": "uuid-c",
+                            "Alice:Person": "uuid-c",
                             "Neo4j:Technology": "uuid-n",
                         }
                     )
@@ -621,7 +621,7 @@ class TestGraphFactory:
     @pytest.mark.asyncio
     async def test_list_target_fans_out(self, factory):
         """Relationship with list target should fan out into N relationships — one per target."""
-        context = "Carlos uses both Neo4j and Qdrant"
+        context = "Alice uses both Neo4j and Qdrant"
 
         with patch("src.services.graph_factory.llm_service") as mock_llm:
             with patch("src.services.graph_factory.entity_factory") as mock_entity:
@@ -631,13 +631,13 @@ class TestGraphFactory:
                     mock_llm.extract_entities_and_relationships = AsyncMock(
                         return_value={
                             "entities": [
-                                {"name": "Carlos", "role": "person"},
+                                {"name": "Alice", "role": "person"},
                                 {"name": "Neo4j", "role": "database"},
                                 {"name": "Qdrant", "role": "database"},
                             ],
                             "relationships": [
                                 {
-                                    "source": "Carlos",
+                                    "source": "Alice",
                                     "relation": "USES",
                                     "target": ["Neo4j", "Qdrant"],
                                 }
@@ -649,7 +649,7 @@ class TestGraphFactory:
                     )
                     mock_entity.batch_create_or_resolve = AsyncMock(
                         return_value={
-                            "Carlos:Person": "uuid-carlos",
+                            "Alice:Person": "uuid-alice",
                             "Neo4j:Technology": "uuid-neo4j",
                             "Qdrant:Technology": "uuid-qdrant",
                         }
@@ -670,7 +670,7 @@ class TestGraphFactory:
                     target_uuids = {r["target_uuid"] for r in passed_rels}
                     assert "uuid-neo4j" in target_uuids
                     assert "uuid-qdrant" in target_uuids
-                    assert all(r["source_uuid"] == "uuid-carlos" for r in passed_rels)
+                    assert all(r["source_uuid"] == "uuid-alice" for r in passed_rels)
 
     @pytest.mark.asyncio
     async def test_list_source_and_target_cartesian(self, factory):

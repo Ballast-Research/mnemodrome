@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Memory Browser - Mnemodrome Admin</title>
+    <link rel="stylesheet" href="/admin/static/style.css">
+</head>
+<body>
+    <!-- Navigation -->
+    <nav role="navigation">
+        <div class="nav-content">
+            <a href="/admin" class="nav-brand">Mnemodrome Admin</a>
+            <ul class="nav-links">
+                <li><a href="/admin" data-page="dashboard">Dashboard</a></li>
+                <li><a href="/admin/config-editor" data-page="config">Configuration</a></li>
+                <li><a href="/admin/health-dashboard" data-page="health">Health</a></li>
+                <li><a href="/admin/service" data-page="service">Service</a></li>
+                <li><a href="/admin/event-viewer" data-page="events">Events</a></li>
+                <li><a href="/admin/memory" data-page="memory" class="active">Memory</a></li>
+            </ul>
+            <div class="dark-mode-toggle">
+                <button type="button" id="dark-mode-toggle" onclick="toggleDarkMode()" title="Toggle Dark Mode">
+                    <span id="dark-mode-icon">🌙</span>
+                </button>
+            </div>
+        </div>
+    </nav>
+
+    <main>
+        <div class="page-header">
+            <h1>Memory Browser</h1>
+            <p>Human-readable view of every Mnemodrome memory layer. Read-only.</p>
+            <p class="memory-subnav">
+                <a href="/admin/memory">Overview</a> ·
+                <a href="/admin/memory/facts">Facts</a> ·
+                <a href="/admin/memory/entities">Entities</a> ·
+                <a href="/admin/memory/search">Search</a> ·
+                <a href="/admin/memory/learnings">Learnings</a> ·
+                <a href="/admin/memory/sessions">Sessions</a> ·
+                <a href="/admin/memory/procedures">Procedures</a> ·
+                <a href="/admin/memory/updates">Updates</a> ·
+                <a href="/admin/memory/graphs">Graphs</a> ·
+                <a href="/admin/event-viewer">Events</a>
+            </p>
+        </div>
+
+        <div class="grid grid-4 memory-layer-grid" id="layer-cards">
+            <div class="status-card"><div class="status-card-header"><span class="status-card-title">Facts (Neo4j)</span><span id="graph-health"></span></div><div class="status-card-value" id="facts-count">--</div><div class="status-card-label" id="facts-label">relationships</div></div>
+            <div class="status-card"><div class="status-card-header"><span class="status-card-title">Entities (Neo4j)</span></div><div class="status-card-value" id="entities-count">--</div><div class="status-card-label">nodes</div></div>
+            <div class="status-card"><div class="status-card-header"><span class="status-card-title">Vectors (Qdrant)</span><span id="vector-health"></span></div><div class="status-card-value" id="vectors-count">--</div><div class="status-card-label" id="vectors-label">points</div></div>
+            <div class="status-card"><div class="status-card-header"><span class="status-card-title">Events</span><span id="events-health"></span></div><div class="status-card-value" id="events-count">--</div><div class="status-card-label" id="events-label">rows</div></div>
+        </div>
+
+        <section class="mt-3">
+            <div class="card">
+                <h2 class="card-header">File layer (Markdown on disk)
+                    <button type="button" class="btn btn-primary" style="float:right;" onclick="refreshIndex()">Refresh file index</button>
+                </h2>
+                <div class="card-body" style="padding:0;">
+                    <div id="files-table"><div class="spinner-container"><div class="spinner"></div></div></div>
+                </div>
+            </div>
+        </section>
+
+        <section class="mt-3">
+            <div class="card">
+                <h2 class="card-header">Backends</h2>
+                <div class="card-body"><div id="backends"></div></div>
+            </div>
+        </section>
+
+    </main>
+
+    <footer>
+        <p>&copy; 2025 Mnemodrome Admin UI &mdash; Memory Browser is read-only</p>
+    </footer>
+
+    <script src="/admin/static/app.js"></script>
+    <script src="/admin/static/memory.js"></script>
+    <script>
+        setActiveNavLink('memory');
+
+        async function loadOverview() {
+            try {
+                const o = await apiGet(`${MEMORY_API}/overview`);
+                const g = o.graph || {};
+                document.getElementById('graph-health').innerHTML = healthBadge(g.status);
+                document.getElementById('facts-count').textContent = g.facts !== undefined ? formatNumber(g.facts) : '--';
+                document.getElementById('facts-label').textContent = g.valid_facts !== undefined ? `${formatNumber(g.valid_facts)} currently valid` : 'relationships';
+                document.getElementById('entities-count').textContent = g.entities !== undefined ? formatNumber(g.entities) : '--';
+                const v = o.vector || {};
+                document.getElementById('vector-health').innerHTML = healthBadge(v.status);
+                document.getElementById('vectors-count').textContent = v.total_points !== undefined ? formatNumber(v.total_points) : '--';
+                document.getElementById('vectors-label').textContent = v.collections ? Object.entries(v.collections).map(([k, n]) => `${k.replace('mnemodrome_', '')}: ${formatNumber(n || 0)}`).join(' · ') : 'points';
+                const ev = o.events || {};
+                document.getElementById('events-health').innerHTML = healthBadge(ev.status);
+                document.getElementById('events-count').textContent = ev.total !== undefined && ev.total !== null ? formatNumber(ev.total) : '--';
+                document.getElementById('events-label').textContent = ev.newest ? `newest ${shortDate(ev.newest)}` : 'rows';
+
+                const files = o.files || {};
+                const rows = Object.entries(files).map(([type, f]) => `
+                    <tr>
+                        <td><a href="/admin/memory/${escapeHtml(type)}">${escapeHtml(type)}</a></td>
+                        <td>${f.count !== undefined ? formatNumber(f.count) : '--'}</td>
+                        <td class="memory-path">${escapeHtml(f.path || '')}</td>
+                        <td>${healthBadge(f.status)} ${f.error ? `<span class="text-muted">${escapeHtml(f.error)}</span>` : ''}</td>
+                        <td class="text-muted">${f.age_seconds !== undefined ? `${Math.round(f.age_seconds)}s ago (scan ${f.scan_seconds}s, TTL ${f.ttl_seconds}s)` : ''}</td>
+                    </tr>`).join('');
+                document.getElementById('files-table').innerHTML = `<table><thead><tr><th>Type</th><th>Files</th><th>Path</th><th>Status</th><th>Index</th></tr></thead><tbody>${rows}</tbody></table>`;
+
+                document.getElementById('backends').innerHTML = kvTable({
+                    'Graph (Neo4j)': `${g.status || 'unknown'}${g.error ? ' — ' + g.error : ''}`,
+                    'Vector (Qdrant)': `${v.status || 'unknown'}${v.error ? ' — ' + v.error : ''}`,
+                    'Event log': `${ev.status || 'unknown'} (${ev.backend || '?'}${ev.path ? ', ' + ev.path : ''})${ev.error ? ' — ' + ev.error : ''}`,
+                    'File index TTL': `${o.file_index_ttl_seconds}s`,
+                    'Generated': shortDate(o.generated_at),
+                });
+            } catch (e) { handleApiError(e, 'loading memory overview'); }
+        }
+        async function refreshIndex() {
+            try {
+                showLoading('Rescanning memory folders…');
+                const r = await apiPost(`${MEMORY_API}/files/refresh`);
+                hideLoading();
+                showSuccess('File index refreshed: ' + Object.entries(r.types).map(([t, i]) => `${t} ${formatNumber(i.count)}`).join(', '));
+                loadOverview();
+            } catch (e) { hideLoading(); handleApiError(e, 'refreshing file index'); }
+        }
+        loadOverview();
+
+    </script>
+</body>
+</html>

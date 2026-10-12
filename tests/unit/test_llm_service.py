@@ -132,7 +132,7 @@ class TestEntityExtraction:
     @pytest.mark.asyncio
     async def test_extract_entities_basic(self, service):
         """Test basic entity extraction from text."""
-        context = "Carlos created a Python library called FastMCP"
+        context = "Alice created a Python library called FastMCP"
 
         mock_response = MagicMock()
         mock_message = MagicMock()
@@ -140,11 +140,11 @@ class TestEntityExtraction:
         mock_content.text = json.dumps(
             {
                 "entities": [
-                    {"name": "Carlos", "role": "person"},
+                    {"name": "Alice", "role": "person"},
                     {"name": "FastMCP", "role": "library"},
                 ],
                 "relationships": [
-                    {"source": "Carlos", "relation": "CREATED", "target": "FastMCP"}
+                    {"source": "Alice", "relation": "CREATED", "target": "FastMCP"}
                 ],
             }
         )
@@ -256,11 +256,11 @@ class TestEntityClassification:
     async def test_classify_entities_batch(self, service):
         """Test batch classification of multiple entities."""
         entities = [
-            {"name": "Carlos", "role": "person"},
+            {"name": "Alice", "role": "person"},
             {"name": "Neo4j", "role": "database"},
             {"name": "Phase 4a", "role": "project"},
         ]
-        context = "Carlos worked on Phase 4a implementing Neo4j integration"
+        context = "Alice worked on Phase 4a implementing Neo4j integration"
 
         mock_response = MagicMock()
         mock_content = MagicMock()
@@ -627,7 +627,7 @@ class TestDegradedExtractionObservability:
         with patch("src.services.llm_service.logger") as mock_logger:
             with patch("asyncio.to_thread", side_effect=self._mock_empty_openai()):
                 result = await service.extract_entities_and_relationships(
-                    "Carlos uses Neo4j"
+                    "Alice uses Neo4j"
                 )
 
         # Fallback result is returned (graceful degradation preserved)
@@ -821,7 +821,7 @@ class TestModelRouting:
         mock_fn, calls = self._capture_call_llm('{"entities": [], "relationships": []}')
         service._call_llm = mock_fn
 
-        await service.extract_entities_and_relationships("Carlos uses Neo4j")
+        await service.extract_entities_and_relationships("Alice uses Neo4j")
 
         assert len(calls) == 1
         assert calls[0]["model"] == service.extraction_model

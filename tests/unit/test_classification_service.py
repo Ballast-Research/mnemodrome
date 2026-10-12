@@ -27,12 +27,12 @@ class TestClassifyEntityLLM:
             mock_llm.classify_entity = AsyncMock(return_value="Person")
 
             result = await classification_service.classify_entity(
-                "Carlos", "Carlos uses Claude Code", "source"
+                "Alice", "Alice uses Claude Code", "source"
             )
 
             assert result == "Person"
             mock_llm.classify_entity.assert_called_once_with(
-                "Carlos", "Carlos uses Claude Code", "source"
+                "Alice", "Alice uses Claude Code", "source"
             )
 
     async def test_classify_entity_llm_fallback_on_error(self, classification_service):
@@ -143,13 +143,13 @@ class TestClassifyBatch:
             )
 
             entities = [
-                {"name": "Carlos", "role": "subject"},
+                {"name": "Alice", "role": "subject"},
                 {"name": "Neo4j", "role": "object"},
                 {"name": "Mnemodrome", "role": "entity"},
             ]
 
             result = await classification_service.classify_batch(
-                entities, context="Carlos uses Neo4j for Mnemodrome"
+                entities, context="Alice uses Neo4j for Mnemodrome"
             )
 
             assert len(result) == 3
@@ -166,7 +166,7 @@ class TestClassifyBatch:
             mock_llm.classify_entity = AsyncMock(side_effect=Exception("LLM error"))
 
             entities = [
-                {"name": "Carlos", "role": "subject", "context": "developer"},
+                {"name": "Alice", "role": "subject", "context": "developer"},
                 {"name": "Neo4j", "role": "object", "context": "database"},
             ]
 
@@ -183,7 +183,7 @@ class TestClassifyBatch:
             )
 
             entities = [
-                {"name": "Carlos", "context": "developer", "role": "subject"},
+                {"name": "Alice", "context": "developer", "role": "subject"},
                 {"name": "Neo4j", "context": "database", "role": "object"},
             ]
 

@@ -1,5 +1,6 @@
 """Neo4j database service for graph memory operations."""
 
+import asyncio
 from datetime import UTC
 from typing import Any
 from uuid import uuid4
@@ -53,29 +54,85 @@ class Neo4jService:
 
     def __init__(self):
         """Initialize Neo4j service (connection established lazily)."""
-        self.driver: AsyncDriver | None = None
+        # The MCP server and the Admin UI run on different asyncio event loops
+        # in the same process (Feature 013 dual-server). An AsyncDriver's
+        # connections are bound to the loop that created them, so one driver
+        # is kept per loop (Feature 039). ``driver`` resolves to the driver for
+        # the running loop; the first one created is the default.
+        self._driver: AsyncDriver | None = None
+        self._driver_loop: asyncio.AbstractEventLoop | None = None
+        self._loop_drivers: dict[asyncio.AbstractEventLoop, AsyncDriver] = {}
         self.uri = NEO4J_URI
         self.user = NEO4J_USER
         self.password = NEO4J_PASSWORD
         self.database = NEO4J_DATABASE
 
+    @staticmethod
+    def _running_loop() -> asyncio.AbstractEventLoop | None:
+        try:
+            return asyncio.get_running_loop()
+        except RuntimeError:
+            return None
+
+    @property
+    def driver(self) -> AsyncDriver | None:
+        """Driver for the running event loop (default driver when unknown)."""
+        loop = self._running_loop()
+        if (
+            loop is not None
+            and self._driver_loop is not None
+            and loop is not self._driver_loop
+        ):
+            return self._loop_drivers.get(loop)
+        return self._driver
+
+    @driver.setter
+    def driver(self, value: AsyncDriver | None) -> None:
+        """Set the default driver (tests inject mocks here)."""
+        self._driver = value
+        self._driver_loop = self._running_loop() if value is not None else None
+        self._loop_drivers.clear()
+
+    def _new_driver(self) -> AsyncDriver:
+        return AsyncGraphDatabase.driver(
+            self.uri,
+            auth=(self.user, self.password),
+            max_connection_pool_size=200,  # Increased from default 50 to handle job manager load
+            connection_timeout=30.0,  # 30 second timeout for connection acquisition
+            max_connection_lifetime=3600,  # Recycle connections after 1 hour
+            connection_acquisition_timeout=60.0,  # 60 second timeout waiting for available connection
+        )
+
     async def connect(self) -> None:
-        """Establish connection to Neo4j database."""
-        if not self.driver:
-            self.driver = AsyncGraphDatabase.driver(
-                self.uri,
-                auth=(self.user, self.password),
-                max_connection_pool_size=200,  # Increased from default 50 to handle job manager load
-                connection_timeout=30.0,  # 30 second timeout for connection acquisition
-                max_connection_lifetime=3600,  # Recycle connections after 1 hour
-                connection_acquisition_timeout=60.0,  # 60 second timeout waiting for available connection
-            )
+        """Establish connection to Neo4j database (one driver per event loop)."""
+        if self._driver is None:
+            self.driver = self._new_driver()
             logger.info(f"Connected to Neo4j at {self.uri} with pool size 200")
+            return
+        loop = self._running_loop()
+        if (
+            loop is not None
+            and self._driver_loop is not None
+            and loop is not self._driver_loop
+            and loop not in self._loop_drivers
+        ):
+            self._loop_drivers[loop] = self._new_driver()
+            logger.info(
+                f"Connected to Neo4j at {self.uri} for a second event loop "
+                f"({len(self._loop_drivers)} extra driver(s))"
+            )
 
     async def close(self) -> None:
-        """Close Neo4j driver connection."""
-        if self.driver:
-            await self.driver.close()
+        """Close every Neo4j driver connection."""
+        drivers = [d for d in self._loop_drivers.values()]
+        if self._driver is not None:
+            drivers.append(self._driver)
+        for d in drivers:
+            try:
+                await d.close()
+            except Exception as e:  # pragma: no cover - best effort
+                logger.warning(f"Error closing Neo4j driver: {e}")
+        if drivers:
             self.driver = None
             logger.info("Closed Neo4j connection")
 

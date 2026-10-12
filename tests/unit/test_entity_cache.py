@@ -24,13 +24,11 @@ class TestEntityCacheKeyFormatting:
 
     def test_make_key_basic(self):
         """Key follows entity:{name}:{type} format."""
-        assert self.cache._make_key("Carlos", "Person") == "entity:Carlos:Person"
+        assert self.cache._make_key("Alice", "Person") == "entity:Alice:Person"
 
     def test_make_key_strips_whitespace(self):
         """Leading/trailing whitespace in name and type is stripped."""
-        assert (
-            self.cache._make_key("  Carlos  ", "  Person  ") == "entity:Carlos:Person"
-        )
+        assert self.cache._make_key("  Alice  ", "  Person  ") == "entity:Alice:Person"
 
     def test_make_key_preserves_internal_spaces(self):
         """Internal spaces in names are preserved."""
@@ -53,8 +51,8 @@ class TestEntityCacheKeyFormatting:
 
     def test_make_key_case_sensitive(self):
         """Keys are case-sensitive for name and type."""
-        key1 = self.cache._make_key("carlos", "person")
-        key2 = self.cache._make_key("Carlos", "Person")
+        key1 = self.cache._make_key("alice", "person")
+        key2 = self.cache._make_key("Alice", "Person")
         assert key1 != key2
 
 
@@ -70,32 +68,32 @@ class TestEntityCacheDisconnected:
 
     @pytest.mark.asyncio
     async def test_get_returns_none_when_disconnected(self):
-        result = await self.cache.get("Carlos", "Person")
+        result = await self.cache.get("Alice", "Person")
         assert result is None
 
     @pytest.mark.asyncio
     async def test_set_returns_false_when_disconnected(self):
-        result = await self.cache.set("Carlos", "uuid-123", "Person")
+        result = await self.cache.set("Alice", "uuid-123", "Person")
         assert result is False
 
     @pytest.mark.asyncio
     async def test_delete_returns_false_when_disconnected(self):
-        result = await self.cache.delete("Carlos", "Person")
+        result = await self.cache.delete("Alice", "Person")
         assert result is False
 
     @pytest.mark.asyncio
     async def test_exists_returns_false_when_disconnected(self):
-        result = await self.cache.exists("Carlos", "Person")
+        result = await self.cache.exists("Alice", "Person")
         assert result is False
 
     @pytest.mark.asyncio
     async def test_batch_get_returns_empty_when_disconnected(self):
-        result = await self.cache.batch_get([("Carlos", "Person")])
+        result = await self.cache.batch_get([("Alice", "Person")])
         assert result == {}
 
     @pytest.mark.asyncio
     async def test_batch_set_returns_zero_when_disconnected(self):
-        result = await self.cache.batch_set({"entity:Carlos:Person": "uuid-123"})
+        result = await self.cache.batch_set({"entity:Alice:Person": "uuid-123"})
         assert result == 0
 
     @pytest.mark.asyncio
@@ -120,9 +118,9 @@ class TestEntityCacheGet:
     async def test_get_cache_hit(self):
         """Returns UUID on cache hit."""
         self.mock_redis.get = AsyncMock(return_value="uuid-abc-123")
-        result = await self.cache.get("Carlos", "Person")
+        result = await self.cache.get("Alice", "Person")
         assert result == "uuid-abc-123"
-        self.mock_redis.get.assert_awaited_once_with("entity:Carlos:Person")
+        self.mock_redis.get.assert_awaited_once_with("entity:Alice:Person")
 
     @pytest.mark.asyncio
     async def test_get_cache_miss(self):
@@ -135,7 +133,7 @@ class TestEntityCacheGet:
     async def test_get_error_returns_none(self):
         """Returns None on Redis error (graceful degradation)."""
         self.mock_redis.get = AsyncMock(side_effect=Exception("Connection lost"))
-        result = await self.cache.get("Carlos", "Person")
+        result = await self.cache.get("Alice", "Person")
         assert result is None
 
 
@@ -152,24 +150,24 @@ class TestEntityCacheSet:
     async def test_set_success(self):
         """Returns True on successful cache write."""
         self.mock_redis.set = AsyncMock(return_value=True)
-        result = await self.cache.set("Carlos", "uuid-abc-123", "Person")
+        result = await self.cache.set("Alice", "uuid-abc-123", "Person")
         assert result is True
         self.mock_redis.set.assert_awaited_once_with(
-            "entity:Carlos:Person", "uuid-abc-123"
+            "entity:Alice:Person", "uuid-abc-123"
         )
 
     @pytest.mark.asyncio
     async def test_set_failure(self):
         """Returns False when Redis set returns falsy."""
         self.mock_redis.set = AsyncMock(return_value=False)
-        result = await self.cache.set("Carlos", "uuid-abc-123", "Person")
+        result = await self.cache.set("Alice", "uuid-abc-123", "Person")
         assert result is False
 
     @pytest.mark.asyncio
     async def test_set_error_returns_false(self):
         """Returns False on Redis error (graceful degradation)."""
         self.mock_redis.set = AsyncMock(side_effect=Exception("Write error"))
-        result = await self.cache.set("Carlos", "uuid-abc-123", "Person")
+        result = await self.cache.set("Alice", "uuid-abc-123", "Person")
         assert result is False
 
 
@@ -186,9 +184,9 @@ class TestEntityCacheDelete:
     async def test_delete_existing_key(self):
         """Returns True when key existed and was deleted."""
         self.mock_redis.delete = AsyncMock(return_value=1)
-        result = await self.cache.delete("Carlos", "Person")
+        result = await self.cache.delete("Alice", "Person")
         assert result is True
-        self.mock_redis.delete.assert_awaited_once_with("entity:Carlos:Person")
+        self.mock_redis.delete.assert_awaited_once_with("entity:Alice:Person")
 
     @pytest.mark.asyncio
     async def test_delete_nonexistent_key(self):
@@ -201,7 +199,7 @@ class TestEntityCacheDelete:
     async def test_delete_error_returns_false(self):
         """Returns False on Redis error (graceful degradation)."""
         self.mock_redis.delete = AsyncMock(side_effect=Exception("Delete error"))
-        result = await self.cache.delete("Carlos", "Person")
+        result = await self.cache.delete("Alice", "Person")
         assert result is False
 
 
@@ -218,21 +216,21 @@ class TestEntityCacheExists:
     async def test_exists_true(self):
         """Returns True when key exists."""
         self.mock_redis.exists = AsyncMock(return_value=True)
-        result = await self.cache.exists("Carlos", "Person")
+        result = await self.cache.exists("Alice", "Person")
         assert result is True
 
     @pytest.mark.asyncio
     async def test_exists_false(self):
         """Returns False when key does not exist."""
         self.mock_redis.exists = AsyncMock(return_value=False)
-        result = await self.cache.exists("Carlos", "Person")
+        result = await self.cache.exists("Alice", "Person")
         assert result is False
 
     @pytest.mark.asyncio
     async def test_exists_error_returns_false(self):
         """Returns False on Redis error (graceful degradation)."""
         self.mock_redis.exists = AsyncMock(side_effect=Exception("Exists error"))
-        result = await self.cache.exists("Carlos", "Person")
+        result = await self.cache.exists("Alice", "Person")
         assert result is False
 
 
@@ -249,18 +247,18 @@ class TestEntityCacheBatchGet:
     async def test_batch_get_all_hits(self):
         """Returns all UUIDs when all cached."""
         self.mock_redis.mget = AsyncMock(return_value=["uuid-1", "uuid-2"])
-        entities = [("Carlos", "Person"), ("Neo4j", "Technology")]
+        entities = [("Alice", "Person"), ("Neo4j", "Technology")]
         result = await self.cache.batch_get(entities)
-        assert result == {"Carlos:Person": "uuid-1", "Neo4j:Technology": "uuid-2"}
+        assert result == {"Alice:Person": "uuid-1", "Neo4j:Technology": "uuid-2"}
         self.mock_redis.mget.assert_awaited_once()
 
     @pytest.mark.asyncio
     async def test_batch_get_partial_hits(self):
         """Only includes hits in result dict, skips misses."""
         self.mock_redis.mget = AsyncMock(return_value=["uuid-1", None])
-        entities = [("Carlos", "Person"), ("Unknown", "Person")]
+        entities = [("Alice", "Person"), ("Unknown", "Person")]
         result = await self.cache.batch_get(entities)
-        assert result == {"Carlos:Person": "uuid-1"}
+        assert result == {"Alice:Person": "uuid-1"}
         assert "Unknown:Person" not in result
 
     @pytest.mark.asyncio
@@ -289,9 +287,9 @@ class TestEntityCacheBatchGet:
     async def test_batch_get_correct_keys(self):
         """Sends correctly formatted keys to Redis mget."""
         self.mock_redis.mget = AsyncMock(return_value=[None])
-        await self.cache.batch_get([("Carlos", "Person")])
+        await self.cache.batch_get([("Alice", "Person")])
         called_keys = self.mock_redis.mget.call_args[0][0]
-        assert called_keys == ["entity:Carlos:Person"]
+        assert called_keys == ["entity:Alice:Person"]
 
 
 class TestEntityCacheBatchSet:
@@ -307,7 +305,7 @@ class TestEntityCacheBatchSet:
     async def test_batch_set_success(self):
         """Returns count of entities cached on success."""
         self.mock_redis.mset = AsyncMock(return_value=True)
-        mapping = {"Carlos:Person": "uuid-1", "Neo4j:Technology": "uuid-2"}
+        mapping = {"Alice:Person": "uuid-1", "Neo4j:Technology": "uuid-2"}
         result = await self.cache.batch_set(mapping)
         assert result == 2
         self.mock_redis.mset.assert_awaited_once_with(mapping)
@@ -352,7 +350,7 @@ class TestEntityCacheWarmCache:
         neo4j = AsyncMock()
         neo4j.query = AsyncMock(
             return_value=[
-                {"uuid": "uuid-1", "name": "Carlos", "type": "Person"},
+                {"uuid": "uuid-1", "name": "Alice", "type": "Person"},
                 {"uuid": "uuid-2", "name": "Neo4j", "type": "Technology"},
             ]
         )
@@ -365,7 +363,7 @@ class TestEntityCacheWarmCache:
 
         # Verify mset called with correct key mapping
         mset_call = self.mock_redis.mset.call_args[0][0]
-        assert mset_call["entity:Carlos:Person"] == "uuid-1"
+        assert mset_call["entity:Alice:Person"] == "uuid-1"
         assert mset_call["entity:Neo4j:Technology"] == "uuid-2"
 
     @pytest.mark.asyncio
@@ -473,8 +471,8 @@ class TestEntityCacheRoundTrip:
         self.mock_redis.set = AsyncMock(side_effect=mock_set)
         self.mock_redis.get = AsyncMock(side_effect=mock_get)
 
-        await self.cache.set("Carlos", "uuid-123", "Person")
-        result = await self.cache.get("Carlos", "Person")
+        await self.cache.set("Alice", "uuid-123", "Person")
+        result = await self.cache.get("Alice", "Person")
         assert result == "uuid-123"
 
     @pytest.mark.asyncio
@@ -496,8 +494,8 @@ class TestEntityCacheRoundTrip:
         self.mock_redis.get = AsyncMock(side_effect=mock_get)
         self.mock_redis.delete = AsyncMock(side_effect=mock_delete)
 
-        await self.cache.set("Carlos", "uuid-123", "Person")
-        deleted = await self.cache.delete("Carlos", "Person")
+        await self.cache.set("Alice", "uuid-123", "Person")
+        deleted = await self.cache.delete("Alice", "Person")
         assert deleted is True
-        result = await self.cache.get("Carlos", "Person")
+        result = await self.cache.get("Alice", "Person")
         assert result is None

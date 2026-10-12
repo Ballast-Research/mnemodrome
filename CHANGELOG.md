@@ -7,6 +7,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Memory Browser** in the Admin UI (`/admin/memory`): a read-only, human-readable
+  view of every memory layer. Overview with per-layer counts, paths, and health;
+  paginated Facts view from Neo4j with entity / relation / validity / date filters
+  and a detail panel (triple, timestamps, confidence, supersession chain, linked
+  Markdown file); Entity view with relationship table and inline SVG graph;
+  semantic Search through Qdrant; newest-first Learnings, Sessions, Procedures,
+  Updates, and Graphs views rendered from the Markdown file layer. Server-side
+  pagination everywhere and a TTL-cached file index with manual refresh, so
+  folders with 28,000+ files stay fast. No new store, no build step, no CDN.
+- `MNEMODROME_STORAGE_PATH` is now the umbrella for the file layer: each memory
+  type defaults to `<umbrella>/<type>`; a per-type `MNEMODROME_*_PATH` overrides
+  only its own folder. Installs that set all six per-type variables are unchanged.
+- `ADMIN_WEB_HOST` (default `127.0.0.1`) controls the Admin UI bind address.
+- `MEMORY_BROWSER_FILE_INDEX_TTL` (default 300 s).
+- Explicit dependency pin `markdown-it-py==4.0.0` (server-side Markdown rendering).
+
+### Fixed
+- Admin UI endpoints that touch Neo4j no longer fail with "attached to a
+  different loop": `Neo4jService` keeps one driver per asyncio event loop (the
+  MCP server and the Admin UI run on separate loops in one process). The Memory
+  Browser owns its own vector-service instance for the same reason.
+
+### Changed
+- `ADMIN_WEB_ENABLED` now defaults to `false` in code as well as in Docker Compose.
+  Docker Compose publishes the Admin UI port on the host loopback only.
+- Documentation: README and INSTALLATION.md describe the umbrella storage path,
+  how to enable the Admin UI, and a reverse-proxy example.
+
 ## [1.0.0] - 2026-06-15
 
 Initial public release. Mnemodrome is a multi-layer cognitive memory system exposed

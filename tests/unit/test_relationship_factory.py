@@ -124,7 +124,7 @@ class TestRelationshipFactorySupersession:
     """
 
     async def test_cumulative_predicate_does_not_supersede(self, relationship_factory):
-        """REGRESSION: Carlos -ORDERED-> B must NOT invalidate Carlos -ORDERED-> A.
+        """REGRESSION: Alice -ORDERED-> B must NOT invalidate Alice -ORDERED-> A.
 
         ORDERED is cumulative, so the conflict check must be skipped entirely and
         the prior fact left valid.
@@ -135,7 +135,7 @@ class TestRelationshipFactorySupersession:
             )
 
             result = await relationship_factory.create(
-                source_uuid="carlos",
+                source_uuid="alice",
                 relation_type="ORDERED",
                 target_uuid="elitedesks",
                 context="ordered 3x HP EliteDesk 800 G6",
@@ -157,7 +157,7 @@ class TestRelationshipFactorySupersession:
             mock_neo4j.query = _query_mock_with_conflict(conflict_target_name="Austin")
 
             result = await relationship_factory.create(
-                source_uuid="carlos",
+                source_uuid="alice",
                 relation_type="LIVES_IN",
                 target_uuid="denver",
                 context="moved to Denver",
@@ -184,7 +184,7 @@ class TestRelationshipFactoryCreate:
         """
         created_row = {
             "source_uuid": "source-123",
-            "source_name": "Carlos",
+            "source_name": "Alice",
             "source_type": "Person",
             "relation_type": "USES",
             "target_uuid": "target-456",
@@ -211,7 +211,7 @@ class TestRelationshipFactoryCreate:
 
             assert created_via_create_path(result)  # CREATE path, not dedup
             assert result["source_uuid"] == "source-123"
-            assert result["source_name"] == "Carlos"
+            assert result["source_name"] == "Alice"
             assert result["relation_type"] == "USES"
             assert result["target_uuid"] == "target-456"
             assert result["target_name"] == "Neo4j"

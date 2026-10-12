@@ -30,13 +30,29 @@ REQUIRED_ENV_VARS = [
 ]
 
 
+# Per-type storage path env vars (Feature 010). Feature 039 adds the
+# MNEMODROME_STORAGE_PATH umbrella: each type defaults to <umbrella>/<type>.
+MEMORY_PATH_ENV_VARS: dict[str, str] = {
+    "facts": "MNEMODROME_FACTS_PATH",
+    "learnings": "MNEMODROME_LEARNINGS_PATH",
+    "sessions": "MNEMODROME_SESSIONS_PATH",
+    "graphs": "MNEMODROME_GRAPHS_PATH",
+    "updates": "MNEMODROME_UPDATES_PATH",
+    "procedures": "MNEMODROME_PROCEDURES_PATH",
+}
+
+
 def get_memory_path(memory_type: MemoryType) -> Path:
     """
     Get the storage path for a specific memory type.
 
-    Priority:
-    1. Granular path env var (MNEMODROME_FACTS_PATH, MNEMODROME_LEARNINGS_PATH, etc.)
-    2. ValueError if not configured
+    Priority (Feature 039):
+    1. Per-type env var (MNEMODROME_FACTS_PATH, MNEMODROME_LEARNINGS_PATH, ...)
+       overrides that one folder.
+    2. MNEMODROME_STORAGE_PATH umbrella: <umbrella>/<type> (facts, learnings, ...).
+    3. ValueError if neither is set.
+
+    Installs that set all six per-type vars keep working unchanged.
 
     Args:
         memory_type: The type of memory to get path for
@@ -47,25 +63,20 @@ def get_memory_path(memory_type: MemoryType) -> Path:
     Raises:
         ValueError: If no storage path configured
     """
-    # Map memory type values to environment variable names.
-    env_vars = {
-        "facts": "MNEMODROME_FACTS_PATH",
-        "learnings": "MNEMODROME_LEARNINGS_PATH",
-        "sessions": "MNEMODROME_SESSIONS_PATH",
-        "graphs": "MNEMODROME_GRAPHS_PATH",
-        "updates": "MNEMODROME_UPDATES_PATH",
-        "procedures": "MNEMODROME_PROCEDURES_PATH",
-    }
-
-    var = env_vars[memory_type.value]
+    var = MEMORY_PATH_ENV_VARS[memory_type.value]
     path = os.getenv(var)
     if path:
         return Path(path)
 
+    umbrella = os.getenv("MNEMODROME_STORAGE_PATH")
+    if umbrella:
+        return Path(umbrella) / memory_type.value
+
     # No configuration found
     raise ValueError(
         f"No storage path configured for {memory_type.value}. "
-        f"Please set {var} in your .env file."
+        f"Set MNEMODROME_STORAGE_PATH (umbrella, defaults to <path>/{memory_type.value}) "
+        f"or {var} in your .env file."
     )
 
 
@@ -163,24 +174,20 @@ def validate_config() -> None:
             f"Please check your .env file."
         )
 
-    # Check that at least one granular storage path is configured.
-    has_storage = any(
-        os.getenv(var)
-        for var in [
-            "MNEMODROME_FACTS_PATH",
-            "MNEMODROME_LEARNINGS_PATH",
-            "MNEMODROME_SESSIONS_PATH",
-            "MNEMODROME_GRAPHS_PATH",
-            "MNEMODROME_UPDATES_PATH",
-            "MNEMODROME_PROCEDURES_PATH",
-        ]
+    # Check that a storage path is configured: either the umbrella
+    # MNEMODROME_STORAGE_PATH or at least one per-type path (Feature 039).
+    has_storage = bool(os.getenv("MNEMODROME_STORAGE_PATH")) or any(
+        os.getenv(var) for var in MEMORY_PATH_ENV_VARS.values()
     )
 
     if not has_storage:
         raise ValueError(
             "No storage paths configured. Please set:\n"
+            "  MNEMODROME_STORAGE_PATH (umbrella; each type lives in <path>/<type>)\n"
+            "or per-type paths:\n"
             "  MNEMODROME_FACTS_PATH, MNEMODROME_LEARNINGS_PATH, "
-            "MNEMODROME_SESSIONS_PATH, MNEMODROME_GRAPHS_PATH\n"
+            "MNEMODROME_SESSIONS_PATH, MNEMODROME_GRAPHS_PATH, "
+            "MNEMODROME_UPDATES_PATH, MNEMODROME_PROCEDURES_PATH\n"
             "See .env.example for configuration examples."
         )
 
@@ -197,11 +204,14 @@ NEO4J_USER = os.getenv("NEO4J_USER", "")
 NEO4J_PASSWORD = os.getenv("NEO4J_PASSWORD", "")
 NEO4J_DATABASE = os.getenv("NEO4J_DATABASE", "neo4j")
 
-# Storage Configuration (Legacy - Deprecated)
-# NOTE: Legacy single-path storage is deprecated in favor of granular MNEMODROME_ paths
-# Use get_memory_path(MemoryType.X) instead
-_legacy_storage_path = os.getenv("MNEMODROME_STORAGE_PATH")
-MNEMODROME_STORAGE_PATH = Path(_legacy_storage_path) if _legacy_storage_path else None
+# Storage Configuration (Feature 039: umbrella path)
+# MNEMODROME_STORAGE_PATH is the umbrella root; each memory type defaults to
+# <umbrella>/<type>. Per-type MNEMODROME_*_PATH vars override one folder each.
+# Always resolve paths through get_memory_path(MemoryType.X).
+_umbrella_storage_path = os.getenv("MNEMODROME_STORAGE_PATH")
+MNEMODROME_STORAGE_PATH = (
+    Path(_umbrella_storage_path) if _umbrella_storage_path else None
+)
 
 # MCP Server Configuration
 MCP_PORT = int(os.getenv("MCP_PORT", "8765"))
@@ -316,7 +326,10 @@ def _resolve_mcp_version() -> str:
 MCP_VERSION = _resolve_mcp_version()
 
 # Admin Web UI Configuration (Feature 013)
-ADMIN_WEB_ENABLED = os.getenv("ADMIN_WEB_ENABLED", "true").lower() == "true"
+# Off by default (Feature 039). The UI binds to loopback unless ADMIN_WEB_HOST
+# is set; expose it through a reverse proxy with TLS, never directly.
+ADMIN_WEB_ENABLED = os.getenv("ADMIN_WEB_ENABLED", "false").lower() == "true"
+ADMIN_WEB_HOST = os.getenv("ADMIN_WEB_HOST", "127.0.0.1")
 ADMIN_WEB_PORT = int(os.getenv("ADMIN_WEB_PORT", "8083"))
 ADMIN_USERNAME = os.getenv("ADMIN_USERNAME", "admin")
 ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "")  # Required, no default for security

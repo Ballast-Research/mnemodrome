@@ -126,7 +126,7 @@ class TestAmendment7BGraphIntelligence:
         No more artificial two-entity constraint.
         """
         context = """
-        Carlos and Alice collaborated with Bob to implement Phase 4a
+        Dana and Alice collaborated with Bob to implement Phase 4a
         using FastMCP and Neo4j. The implementation followed Gang of Four
         Factory Pattern to solve entity duplication.
         """
@@ -238,7 +238,7 @@ class TestAmendment7CPerformance:
         test_entities = [
             ("Python", "A programming language"),
             ("Neo4j", "Graph database system"),
-            ("Carlos", "Person working on Mnemodrome"),
+            ("Alice", "Person working on Mnemodrome"),
             ("Phase 4.5", "Project implementation phase"),
             ("Gang of Four", "Design patterns book"),
         ]
@@ -269,7 +269,7 @@ class TestAmendment7CPerformance:
         import time
 
         context = """
-        Carlos used Neo4j and FastMCP to implement Phase 4.5,
+        Alice used Neo4j and FastMCP to implement Phase 4.5,
         following the Gang of Four Factory Pattern for entity resolution.
         """
 

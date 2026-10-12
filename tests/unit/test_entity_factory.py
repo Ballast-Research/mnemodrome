@@ -30,7 +30,7 @@ class TestEntityFactoryCreateOrResolve:
                 mock_neo4j.query = AsyncMock(return_value=[{"uuid": "test-uuid-123"}])
 
                 result = await entity_factory.create_or_resolve(
-                    "Carlos", "Person", "A developer"
+                    "Alice", "Person", "A developer"
                 )
 
                 assert result == "test-uuid-123"
@@ -44,7 +44,7 @@ class TestEntityFactoryCreateOrResolve:
                 mock_cache.get = AsyncMock(return_value="cached-uuid-456")
 
                 result = await entity_factory.create_or_resolve(
-                    "Carlos", "Person", "A developer"
+                    "Alice", "Person", "A developer"
                 )
 
                 assert result == "cached-uuid-456"
@@ -105,7 +105,7 @@ class TestEntityFactoryBatchCreateOrResolve:
             with patch("src.services.entity_factory.neo4j_service") as mock_neo4j:
                 # First entity cached, second needs Neo4j
                 mock_cache.batch_get = AsyncMock(
-                    return_value={"Carlos:Person": "cached-uuid-1"}
+                    return_value={"Alice:Person": "cached-uuid-1"}
                 )
                 # Ensure get is async too for cache misses
                 mock_cache.get = AsyncMock(return_value=None)
@@ -113,13 +113,13 @@ class TestEntityFactoryBatchCreateOrResolve:
                 mock_neo4j.query = AsyncMock(return_value=[{"uuid": "new-uuid-2"}])
 
                 entities = [
-                    ("Carlos", "Person", "Developer"),
+                    ("Alice", "Person", "Developer"),
                     ("Neo4j", "Technology", "Database"),
                 ]
 
                 result = await entity_factory.batch_create_or_resolve(entities)
 
-                assert "Carlos:Person" in result
+                assert "Alice:Person" in result
                 assert len(result) >= 1
 
     async def test_batch_create_all_cache_misses(self, entity_factory):
@@ -187,17 +187,17 @@ class TestEntityFactoryRetrieval:
                 return_value=[
                     {
                         "uuid": "uuid-123",
-                        "name": "Carlos",
+                        "name": "Alice",
                         "entity_type": "Person",
                         "summary": "Developer",
                     }
                 ]
             )
 
-            result = await entity_factory.get_entity_by_name("Carlos", "Person")
+            result = await entity_factory.get_entity_by_name("Alice", "Person")
 
             assert result is not None
-            assert result["name"] == "Carlos"
+            assert result["name"] == "Alice"
             assert result["entity_type"] == "Person"
 
     async def test_get_entity_by_name_without_type(self, entity_factory):
@@ -232,7 +232,7 @@ class TestEntityFactoryEnrichment:
                     return_value=[
                         {
                             "uuid": "uuid-to-enrich",
-                            "name": "Carlos",
+                            "name": "Alice",
                             "entity_type": "Person",
                         }
                     ]
@@ -267,9 +267,9 @@ class TestEntityFactoryCacheInvalidation:
         with patch("src.services.entity_factory.entity_cache") as mock_cache:
             mock_cache.delete = AsyncMock(return_value=1)
 
-            await entity_factory.invalidate_entity_cache("Carlos", "Person")
+            await entity_factory.invalidate_entity_cache("Alice", "Person")
 
-            mock_cache.delete.assert_called_once_with("Carlos", "Person")
+            mock_cache.delete.assert_called_once_with("Alice", "Person")
 
     async def test_invalidate_entity_cache_failure(self, entity_factory):
         """Test handling cache invalidation failure."""
@@ -277,7 +277,7 @@ class TestEntityFactoryCacheInvalidation:
             mock_cache.delete = AsyncMock(side_effect=Exception("Cache error"))
 
             # Should not raise, but log error
-            await entity_factory.invalidate_entity_cache("Carlos", "Person")
+            await entity_factory.invalidate_entity_cache("Alice", "Person")
 
 
 class TestEntityFactoryValidation:
