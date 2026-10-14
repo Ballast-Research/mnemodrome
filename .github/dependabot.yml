@@ -1,6 +1,19 @@
 version: 2
+
+# Version updates wait 30 days after a release (cooldown), so a compromised
+# upload has time to be found and pulled. Security updates are not delayed.
 updates:
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:
       interval: "weekly"
+    cooldown:
+      default-days: 30
+
+  # Python dependencies (uv.lock).
+  - package-ecosystem: "uv"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    cooldown:
+      default-days: 30
