@@ -5,19 +5,19 @@ Feature 010: MCP Configuration Web Interface
 Provides FastAPI-based web interface for configuration management and monitoring.
 """
 
-import secrets
 import subprocess
 from datetime import datetime
 from pathlib import Path
 from typing import Any
+from urllib.parse import quote
 
-from fastapi import Body, Depends, FastAPI, HTTPException, Query, status
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi import Body, Depends, FastAPI, Form, HTTPException, Query, Request, status
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from fastapi.staticfiles import StaticFiles
 from loguru import logger
 
-from src import config
+from src import admin_auth, config
 from src.services import admin_service
 from src.services.admin_service import initialize_config_manager
 
@@ -28,43 +28,57 @@ app = FastAPI(
     version="1.0.0",
 )
 
-# HTTP Basic Auth security
-security = HTTPBasic()
+# Authentication (Feature 039): form login + session cookie for browsers,
+# HTTP Basic for scripts. See src/admin_auth.py.
+security = HTTPBasic(auto_error=False)
 
 
-def verify_admin(credentials: HTTPBasicCredentials = Depends(security)) -> str:
+def verify_admin(
+    request: Request,
+    credentials: HTTPBasicCredentials | None = Depends(security),
+) -> str:
     """
-    Verify admin credentials using HTTP Basic Auth.
+    Authenticate an Admin UI request.
 
-    Args:
-        credentials: HTTP Basic Auth credentials from request
+    Accepts either HTTP Basic credentials (scripts, curl -u) or a valid signed
+    session cookie (browser after /admin/login).
 
     Returns:
         Username if authenticated
 
     Raises:
-        HTTPException: 401 if credentials invalid
+        HTTPException: 401 if Basic credentials are wrong; 403 if a
+            cookie-authenticated write comes from another origin.
+        admin_auth.LoginRequiredError: no credentials at all (redirect or 401).
     """
-    # Get correct credentials from config
-    correct_username = config.ADMIN_USERNAME
-    correct_password = config.ADMIN_PASSWORD
-
-    # Use constant-time comparison to prevent timing attacks
-    username_correct = secrets.compare_digest(
-        credentials.username.encode("utf8"), correct_username.encode("utf8")
-    )
-    password_correct = secrets.compare_digest(
-        credentials.password.encode("utf8"), correct_password.encode("utf8")
-    )
-
-    if not (username_correct and password_correct):
+    if credentials is not None:
+        if admin_auth.credentials_valid(credentials.username, credentials.password):
+            return credentials.username
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid credentials",
             headers={"WWW-Authenticate": "Basic"},
         )
 
-    return credentials.username
+    username = admin_auth.read_session_token(
+        request.cookies.get(admin_auth.SESSION_COOKIE)
+    )
+    if username:
+        if request.method not in ("GET", "HEAD", "OPTIONS") and not (
+            admin_auth.origin_ok(request)
+        ):
+            raise admin_auth.forbidden("Cross-origin request refused")
+        return username
+
+    raise admin_auth.LoginRequiredError(
+        browser_page=admin_auth.wants_html_page(request),
+        ui_call=admin_auth.is_ui_call(request),
+    )
+
+
+@app.exception_handler(admin_auth.LoginRequiredError)
+async def _login_required_handler(request: Request, exc: admin_auth.LoginRequiredError):
+    return admin_auth.login_required_response(request, exc)
 
 
 # Initialize ConfigurationManager on startup
@@ -76,6 +90,64 @@ async def startup_event():
     logger.info(f"Admin UI started on port {config.ADMIN_WEB_PORT}")
 
 
+# ============================================================================
+# Login / Logout (Feature 039)
+# ============================================================================
+
+
+@app.get("/admin/login", response_class=HTMLResponse)
+async def login_page(request: Request):
+    """Login form (no auth). Already logged in -> straight to the target."""
+    target = admin_auth.safe_next(request.query_params.get("next"))
+    if admin_auth.read_session_token(request.cookies.get(admin_auth.SESSION_COOKIE)):
+        return RedirectResponse(url=target, status_code=303)
+    html_path = Path("src/static/login.html")
+    if not html_path.exists():
+        raise HTTPException(status_code=500, detail="login.html missing")
+    return HTMLResponse(
+        content=html_path.read_text(),
+        headers={"Cache-Control": "no-store", "X-Frame-Options": "DENY"},
+    )
+
+
+@app.post("/admin/login")
+async def login_submit(
+    request: Request,
+    username: str = Form(""),
+    password: str = Form(""),
+    next: str = Form("/admin/memory"),
+):
+    """Check the form, set the session cookie, redirect back."""
+    key = admin_auth.client_key(request)
+    target = admin_auth.safe_next(next)
+    if admin_auth.throttled(key):
+        logger.warning("Admin login throttled for a client after repeated failures")
+        return RedirectResponse(
+            url=f"/admin/login?error=throttled&next={quote(target, safe='')}",
+            status_code=303,
+        )
+    if not admin_auth.credentials_valid(username, password):
+        admin_auth.record_failure(key)
+        logger.warning("Admin login failed")
+        return RedirectResponse(
+            url=f"/admin/login?error=invalid&next={quote(target, safe='')}",
+            status_code=303,
+        )
+    admin_auth.clear_failures(key)
+    response = RedirectResponse(url=target, status_code=303)
+    admin_auth.set_session_cookie(response, request, username)
+    logger.info(f"Admin login: {username}")
+    return response
+
+
+@app.api_route("/admin/logout", methods=["GET", "POST"])
+async def logout():
+    """Clear the session cookie."""
+    response = RedirectResponse(url="/admin/login?logged_out=1", status_code=303)
+    admin_auth.clear_session_cookie(response)
+    return response
+
+
 @app.get("/admin/health-check")
 async def health_check():
     """Simple health check endpoint (no auth required)."""
@@ -85,8 +157,6 @@ async def health_check():
 @app.get("/")
 async def root():
     """Redirect root URL to admin interface."""
-    from fastapi.responses import RedirectResponse
-
     return RedirectResponse(url="/admin", status_code=307)
 
 

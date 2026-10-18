@@ -15,6 +15,19 @@
 // ============================================================================
 
 /**
+ * Session expired or never logged in: go to the login form and come back.
+ * (Feature 039 form login; API calls carry X-Requested-With so the server
+ * answers 401 without a Basic-auth challenge.)
+ */
+function redirectIfLoggedOut(response) {
+    if (response.status === 401) {
+        const next = encodeURIComponent(window.location.pathname + window.location.search);
+        window.location.href = `/admin/login?next=${next}`;
+        throw new Error('Not logged in');
+    }
+}
+
+/**
  * Make authenticated GET request to API endpoint
  * @param {string} endpoint - API endpoint path
  * @returns {Promise<any>} - Response data
@@ -25,8 +38,10 @@ async function apiGet(endpoint) {
             method: 'GET',
             headers: {
                 'Accept': 'application/json',
+                'X-Requested-With': 'mnemodrome-admin',
             },
         });
+        redirectIfLoggedOut(response);
 
         if (!response.ok) {
             const errorText = await response.text();
@@ -53,6 +68,7 @@ async function apiPost(endpoint, data = null) {
             headers: {
                 'Content-Type': 'application/json',
                 'Accept': 'application/json',
+                'X-Requested-With': 'mnemodrome-admin',
             },
         };
 
@@ -61,6 +77,7 @@ async function apiPost(endpoint, data = null) {
         }
 
         const response = await fetch(endpoint, options);
+        redirectIfLoggedOut(response);
 
         if (!response.ok) {
             const errorText = await response.text();

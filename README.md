@@ -387,7 +387,7 @@ ADMIN_WEB_ENABLED=true
 ADMIN_PASSWORD=<a long random password>     # openssl rand -base64 32
 ```
 
-Then open `http://localhost:8083/admin/memory` (HTTP Basic auth, user `admin`). With Docker Compose the port is published on the host's loopback only. On a bare-metal install it binds to `127.0.0.1` unless you set `ADMIN_WEB_HOST`. To reach it from another machine put a TLS reverse proxy in front; see [INSTALLATION.md](INSTALLATION.md#admin-ui-and-memory-browser) for an nginx example.
+Then open `http://localhost:8083/admin/memory` and sign in as `admin`. The sign-in page works with password managers; scripts can use HTTP Basic auth. With Docker Compose the port is published on the host's loopback only. On a bare-metal install it binds to `127.0.0.1` unless you set `ADMIN_WEB_HOST`. To reach it from another machine put a TLS reverse proxy in front; see [INSTALLATION.md](INSTALLATION.md#admin-ui-and-memory-browser) for an nginx example.
 
 The Admin UI also hosts the configuration editor, health dashboard, event viewer, and service controls.
 

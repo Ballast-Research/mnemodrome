@@ -18,6 +18,7 @@
                 <li><a href="/admin/service" data-page="service">Service</a></li>
                 <li><a href="/admin/event-viewer" data-page="events" class="active">Events</a></li>
                 <li><a href="/admin/memory" data-page="memory">Memory</a></li>
+                <li><a href="/admin/logout" data-page="logout">Log out</a></li>
             </ul>
             <div class="dark-mode-toggle">
                 <button type="button" id="dark-mode-toggle" onclick="toggleDarkMode()" title="Toggle Dark Mode">
@@ -298,8 +299,8 @@
             }
 
             // Download as JSON
-            fetch(`/admin/events?${params.toString()}`)
-                .then(response => response.json())
+            fetch(`/admin/events?${params.toString()}`, { headers: { 'X-Requested-With': 'mnemodrome-admin' } })
+                .then(response => { redirectIfLoggedOut(response); return response.json(); })
                 .then(data => {
                     const blob = new Blob([JSON.stringify(data.events, null, 2)], {
                         type: 'application/json'
