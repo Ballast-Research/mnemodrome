@@ -20,6 +20,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `MNEMODROME_STORAGE_PATH` is now the umbrella for the file layer: each memory
   type defaults to `<umbrella>/<type>`; a per-type `MNEMODROME_*_PATH` overrides
   only its own folder. Installs that set all six per-type variables are unchanged.
+- Admin UI sign-in page with a signed, HttpOnly, SameSite=Strict session
+  cookie (Secure behind TLS) and a Log out link. Works with password managers.
+  HTTP Basic auth still works for scripts. Failed sign-ins are throttled per
+  client. New `ADMIN_SESSION_SECRET` and `ADMIN_SESSION_TTL_HOURS`.
 - `ADMIN_WEB_HOST` (default `127.0.0.1`) controls the Admin UI bind address.
 - `MEMORY_BROWSER_FILE_INDEX_TTL` (default 300 s).
 - Explicit dependency pin `markdown-it-py==4.0.0` (server-side Markdown rendering).

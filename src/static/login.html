@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sign in - Mnemodrome Admin</title>
+    <link rel="stylesheet" href="/admin/static/style.css">
+</head>
+<body>
+    <nav role="navigation">
+        <div class="nav-content">
+            <a href="/admin/login" class="nav-brand">Mnemodrome Admin</a>
+            <div class="dark-mode-toggle">
+                <button type="button" id="dark-mode-toggle" onclick="toggleDarkMode()" title="Toggle Dark Mode">
+                    <span id="dark-mode-icon">🌙</span>
+                </button>
+            </div>
+        </div>
+    </nav>
+
+    <main>
+        <div class="login-wrap">
+            <div class="card">
+                <h1 class="card-header">Sign in</h1>
+                <div class="card-body">
+                    <p id="login-message" class="login-message" role="alert" hidden></p>
+                    <!-- Plain form POST with standard autocomplete hints so password
+                         managers (LastPass, 1Password, browser built-ins) can save
+                         and fill it. -->
+                    <form method="post" action="/admin/login" id="login-form" autocomplete="on">
+                        <div class="form-group">
+                            <label for="username">Username</label>
+                            <input type="text" id="username" name="username"
+                                   autocomplete="username" autocapitalize="none"
+                                   spellcheck="false" required autofocus>
+                        </div>
+                        <div class="form-group">
+                            <label for="password">Password</label>
+                            <input type="password" id="password" name="password"
+                                   autocomplete="current-password" required>
+                        </div>
+                        <input type="hidden" id="next" name="next" value="/admin/memory">
+                        <div class="btn-group">
+                            <button type="submit" class="btn btn-primary">Sign in</button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <footer>
+        <p>&copy; 2025 Mnemodrome Admin UI</p>
+    </footer>
+
+    <script src="/admin/static/app.js"></script>
+    <script>
+        (function () {
+            const params = new URLSearchParams(window.location.search);
+            const next = params.get('next');
+            if (next && next.startsWith('/admin') && !next.startsWith('//')) {
+                document.getElementById('next').value = next;
+            }
+            const messages = {
+                invalid: 'Wrong username or password.',
+                throttled: 'Too many failed attempts. Wait five minutes and try again.',
+            };
+            const msg = document.getElementById('login-message');
+            const error = params.get('error');
+            if (error && messages[error]) {
+                msg.textContent = messages[error];
+                msg.className = 'login-message login-error';
+                msg.hidden = false;
+            } else if (params.get('logged_out')) {
+                msg.textContent = 'You are signed out.';
+                msg.className = 'login-message';
+                msg.hidden = false;
+            }
+        })();
+    </script>
+</body>
+</html>

@@ -543,13 +543,20 @@ ADMIN_PASSWORD=<long random password>   # e.g. openssl rand -base64 32
 ADMIN_WEB_PORT=8083                      # optional
 ```
 
-Restart the server and open `http://localhost:8083/admin/memory`. The browser asks for the username and password (HTTP Basic auth).
+Restart the server and open `http://localhost:8083/admin/memory`. You get a normal sign-in page, so your password manager can save and fill it. The session lasts `ADMIN_SESSION_TTL_HOURS` (default 12) and ends with **Log out** or a password change. Set `ADMIN_SESSION_SECRET` to keep sessions across restarts.
+
+Scripts and API clients can keep using HTTP Basic auth with the same credentials:
+
+```bash
+curl -u admin:<password> http://localhost:8083/admin/api/memory/overview
+```
 
 **Network exposure**
 
 - Docker Compose publishes the port as `127.0.0.1:8083` on the host only.
 - A bare-metal install binds to `127.0.0.1`. `ADMIN_WEB_HOST=0.0.0.0` opens it to the network; only do that behind a firewall or reverse proxy.
-- The Admin UI speaks plain HTTP. Put a TLS reverse proxy in front of it to reach it from other machines.
+- The Admin UI speaks plain HTTP. Put a TLS reverse proxy in front of it to reach it from other machines. The proxy must send `X-Forwarded-Proto: https` so the session cookie is marked Secure.
+- The Admin UI has one admin account and is meant for a single operator on a trusted network (LAN or VPN). Do not expose it to the public internet.
 
 **nginx reverse proxy example**
 

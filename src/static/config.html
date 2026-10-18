@@ -18,6 +18,7 @@
                 <li><a href="/admin/service" data-page="service">Service</a></li>
                 <li><a href="/admin/event-viewer" data-page="events">Events</a></li>
                 <li><a href="/admin/memory" data-page="memory">Memory</a></li>
+                <li><a href="/admin/logout" data-page="logout">Log out</a></li>
             </ul>
             <div class="dark-mode-toggle">
                 <button type="button" id="dark-mode-toggle" onclick="toggleDarkMode()" title="Toggle Dark Mode">
@@ -376,7 +377,9 @@
 
                 const response = await fetch('/admin/config/export', {
                     method: 'GET',
+                    headers: { 'X-Requested-With': 'mnemodrome-admin' },
                 });
+                redirectIfLoggedOut(response);
 
                 if (!response.ok) {
                     throw new Error(`HTTP ${response.status}: ${response.statusText}`);
