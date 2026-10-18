@@ -5,6 +5,23 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 
+@pytest.fixture(autouse=True)
+def _reset_shared_sqlite_connection():
+    """Forget the shared SQLite event-log connection after each test.
+
+    The connection is a module singleton. Tests that go through a TestClient
+    (Admin UI, Memory Browser) open it inside that client's event loop, which
+    closes when the client exits; the connection still says "connected" but
+    its worker can no longer answer, so the next test that uses it waits
+    forever. Production runs one event loop and is not affected.
+    """
+    yield
+    from src.database.sqlite import sqlite_connection
+
+    sqlite_connection._db = None
+    sqlite_connection._connected = False
+
+
 @pytest.fixture
 def mock_neo4j_driver():
     """Mock Neo4j async driver returning empty results."""

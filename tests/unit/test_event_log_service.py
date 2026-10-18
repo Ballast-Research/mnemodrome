@@ -169,7 +169,7 @@ class TestEventLogService:
     @pytest.mark.asyncio
     async def test_connect_initializes_session(self, service):
         """Test connect initializes a session."""
-        with patch("src.services.event_log_service.sqlite_connection") as mock_db:
+        with patch("src.services.event_log_service._db_connection") as mock_db:
             mock_db.connect = AsyncMock()
             mock_db.fetchrow = AsyncMock(return_value=None)
             mock_db.execute = AsyncMock()

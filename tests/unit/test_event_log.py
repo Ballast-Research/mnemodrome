@@ -17,7 +17,7 @@ class TestEventLogService:
     @pytest_asyncio.fixture
     async def event_log(self):
         """Create mocked event log service for testing."""
-        patcher = patch("src.services.event_log_service.sqlite_connection")
+        patcher = patch("src.services.event_log_service._db_connection")
         mock_db = patcher.start()
 
         try:
@@ -42,7 +42,7 @@ class TestEventLogService:
     @pytest.mark.asyncio
     async def test_connect_and_initialize(self):
         """Test service initialization."""
-        with patch("src.services.event_log_service.sqlite_connection") as mock_db:
+        with patch("src.services.event_log_service._db_connection") as mock_db:
             mock_db.connect = AsyncMock()
             mock_db.fetch = AsyncMock(return_value=[])
             mock_db.fetchval = AsyncMock(return_value=None)
@@ -64,7 +64,7 @@ class TestEventLogService:
     @pytest.mark.asyncio
     async def test_session_id_generation(self):
         """Test that session ID is generated on connection."""
-        with patch("src.services.event_log_service.sqlite_connection") as mock_db:
+        with patch("src.services.event_log_service._db_connection") as mock_db:
             mock_db.connect = AsyncMock()
             mock_db.fetch = AsyncMock(return_value=[])
             mock_db.fetchval = AsyncMock(return_value=None)
@@ -287,7 +287,7 @@ class TestEventLogService:
 
         Phase 2: Sessions resume if within timeout window (4 hours default).
         """
-        with patch("src.services.event_log_service.sqlite_connection") as mock_db:
+        with patch("src.services.event_log_service._db_connection") as mock_db:
             mock_db.connect = AsyncMock()
             mock_db.fetch = AsyncMock(return_value=[])
             mock_db.fetchval = AsyncMock(return_value=None)
@@ -322,7 +322,7 @@ class TestEventLogService:
     @pytest.mark.asyncio
     async def test_get_session_status_no_session(self):
         """Test get_session_status when no session exists."""
-        with patch("src.services.event_log_service.sqlite_connection") as mock_db:
+        with patch("src.services.event_log_service._db_connection") as mock_db:
             mock_db.db_path = "./data/test_events.db"
             service = EventLogService()
             # session_id is None
