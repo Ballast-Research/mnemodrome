@@ -3428,6 +3428,162 @@ async def semantic_search(
         raise Exception(f"Semantic search failed: {e}")
 
 
+def _format_context_cascade_result(
+    cascade_result: dict[str, Any], query_time: float
+) -> str:
+    """
+    Format a context cascade result dict as markdown.
+
+    Every emitted item must carry readable text. Each layer's result shape
+    differs (prompts use "matched_text", learnings use "title"/"content",
+    facts use "entity1"/"relation"/"entity2"), so each section maps its own
+    fields explicitly rather than assuming a shared key — the previous
+    formatter read "text" for prompt hits, which vector_service never sets
+    (it sets "matched_text"), silently producing an empty body for every
+    prompt hit. Hits with no recoverable text (e.g. the underlying Neo4j
+    node/markdown record no longer exists) are dropped rather than
+    rendered empty.
+
+    Args:
+        cascade_result: Dict from ContextRetrievalService.retrieve_context_for_prompt
+        query_time: Elapsed time in ms
+
+    Returns:
+        Markdown string for display ("" if no relevant context found)
+    """
+    # Check if greenfield (no relevant context found)
+    is_greenfield = cascade_result.get("is_greenfield", True)
+
+    if is_greenfield:
+        return ""  # Return empty string - no relevant context found
+
+    markdown = "# Relevant Context\n\n"
+
+    # Similar prompts from vector search.
+    # vector_service.search_similar_prompts(_by_embedding) returns the hit
+    # text under "matched_text" (and raw payload under "payload"), never
+    # under "text" — that mismatch was the root cause of the empty bodies.
+    similar_prompts = cascade_result.get("similar_prompts", [])
+    rendered_prompts = []
+    for result in similar_prompts:
+        text = (
+            result.get("matched_text")
+            or result.get("text")
+            or (result.get("payload") or {}).get("text")
+            or ""
+        ).strip()
+        if not text:
+            # No recoverable text for this hit — drop it instead of
+            # rendering an empty body with a similarity score attached.
+            logger.warning(
+                f"Dropping similar_prompt hit with no text (id={result.get('id')})"
+            )
+            continue
+        rendered_prompts.append((result.get("score", 0), text[:200]))
+
+    if rendered_prompts:
+        markdown += "## Previous Similar Questions\n\n"
+        for score, text in rendered_prompts:
+            markdown += f"- **Similarity**: {score:.3f}\n"
+            markdown += f"  {text}...\n\n"
+
+    # Similar learnings (vector_service returns "title"/"content" keys).
+    similar_learnings = cascade_result.get("similar_learnings", [])
+    rendered_learnings = []
+    for learning in similar_learnings:
+        title = (learning.get("title") or "").strip()
+        content = (learning.get("content") or "").strip()
+        if not title and not content:
+            # Underlying record has no retrievable title or content —
+            # likely a stale Qdrant point whose source record is gone.
+            logger.warning(
+                f"Dropping similar_learning hit with no title/content "
+                f"(id={learning.get('id')}, neo4j_uuid={learning.get('neo4j_uuid')})"
+            )
+            continue
+        rendered_learnings.append(
+            (
+                title or "[Untitled]",
+                content[:200] if content else "[content unavailable]",
+            )
+        )
+
+    if rendered_learnings:
+        markdown += "## Related Learnings\n\n"
+        for title, content in rendered_learnings:
+            markdown += f"### {title}\n{content}...\n\n"
+
+    # Entity context from graph.
+    entity_context = cascade_result.get("entity_context", [])
+    rendered_entities = [
+        e.get("name") for e in entity_context if (e.get("name") or "").strip()
+    ]
+    if rendered_entities:
+        markdown += "## Related Entities\n\n"
+        for name in rendered_entities:
+            markdown += f"- {name}\n"
+
+    # Related facts (Neo4j rows: entity1/relation/entity2).
+    facts = cascade_result.get("facts", [])
+    rendered_facts = [
+        f
+        for f in facts
+        if (f.get("entity1") or "").strip()
+        and (f.get("relation") or "").strip()
+        and (f.get("entity2") or "").strip()
+    ]
+    if rendered_facts:
+        markdown += "## Related Facts\n\n"
+        for fact in rendered_facts:
+            markdown += (
+                f"- {fact['entity1']} **{fact['relation']}** {fact['entity2']}\n"
+            )
+
+    # Relevant procedures (Feature 031)
+    procedures = cascade_result.get("procedures", [])
+    if procedures:
+        markdown += "\n## Relevant Procedures\n\n"
+        for proc in procedures:
+            steps_md = "\n".join(
+                f"   {i}. {s}" for i, s in enumerate(proc.diagnostic_steps, 1)
+            )
+            techs = ", ".join(proc.technologies) if proc.technologies else "N/A"
+            markdown += f"""### {proc.symptom[:80]} (similarity: {proc.similarity_score:.2f})
+**Problem Type**: {proc.problem_type} | **Outcome**: {proc.outcome} | **Technologies**: {techs}
+
+**Diagnostic Steps**:
+{steps_md}
+
+**Root Cause**: {proc.root_cause}
+**Fix**: {proc.fix}
+**Verification**: {proc.verification}
+"""
+
+    # Summary statistics — counts reflect what was actually rendered,
+    # not raw hit counts (dropped empty-body hits are excluded).
+    total_items = (
+        len(rendered_prompts)
+        + len(rendered_learnings)
+        + len(rendered_entities)
+        + len(rendered_facts)
+        + len(procedures)
+    )
+
+    if total_items == 0:
+        # Every hit was dropped for missing content — be explicit rather
+        # than silently returning what looks like a normal greenfield "".
+        return (
+            "# Relevant Context\n\n"
+            "No displayable context found (all candidate hits had "
+            "missing or unavailable content).\n\n"
+            f"---\n*Retrieved 0 items in {query_time:.1f}ms*"
+        )
+
+    markdown += f"\n---\n*Retrieved {total_items} items in {query_time:.1f}ms*"
+
+    return markdown
+
+
 @mcp.tool()
 @auto_capture_tool
 async def load_context_cascade(
@@ -3484,79 +3640,7 @@ async def load_context_cascade(
             except Exception as e:
                 logger.warning(f"Cascade activation tracking failed (FR-008): {e}")
 
-        # Check if greenfield (no relevant context found)
-        is_greenfield = cascade_result.get("is_greenfield", True)
-
-        if is_greenfield:
-            return ""  # Return empty string - no relevant context found
-
-        markdown = "# Relevant Context\n\n"
-
-        # Similar prompts from vector search
-        similar_prompts = cascade_result.get("similar_prompts", [])
-        if similar_prompts:
-            markdown += "## Previous Similar Questions\n\n"
-            for result in similar_prompts:
-                score = result.get("score", 0)
-                text = result.get("text", "")[:200]
-                markdown += f"- **Similarity**: {score:.3f}\n"
-                markdown += f"  {text}...\n\n"
-
-        # Similar learnings
-        similar_learnings = cascade_result.get("similar_learnings", [])
-        if similar_learnings:
-            markdown += "## Related Learnings\n\n"
-            for learning in similar_learnings:
-                title = learning.get("title", "Untitled")
-                content = learning.get("content", "")[:200]
-                markdown += f"### {title}\n{content}...\n\n"
-
-        # Entity context from graph
-        entity_context = cascade_result.get("entity_context", [])
-        if entity_context:
-            markdown += "## Related Entities\n\n"
-            for entity in entity_context:
-                markdown += f"- {entity.get('name', 'Unknown')}\n"
-
-        # Related facts
-        facts = cascade_result.get("facts", [])
-        if facts:
-            markdown += "## Related Facts\n\n"
-            for fact in facts:
-                markdown += f"- {fact.get('entity1', 'Unknown')} **{fact.get('relation', '')}** {fact.get('entity2', 'Unknown')}\n"
-
-        # Relevant procedures (Feature 031)
-        procedures = cascade_result.get("procedures", [])
-        if procedures:
-            markdown += "\n## Relevant Procedures\n\n"
-            for proc in procedures:
-                steps_md = "\n".join(
-                    f"   {i}. {s}" for i, s in enumerate(proc.diagnostic_steps, 1)
-                )
-                techs = ", ".join(proc.technologies) if proc.technologies else "N/A"
-                markdown += f"""### {proc.symptom[:80]} (similarity: {proc.similarity_score:.2f})
-**Problem Type**: {proc.problem_type} | **Outcome**: {proc.outcome} | **Technologies**: {techs}
-
-**Diagnostic Steps**:
-{steps_md}
-
-**Root Cause**: {proc.root_cause}
-**Fix**: {proc.fix}
-**Verification**: {proc.verification}
-"""
-
-        # Summary statistics
-        total_items = (
-            len(similar_prompts)
-            + len(similar_learnings)
-            + len(entity_context)
-            + len(facts)
-            + len(procedures)
-        )
-
-        markdown += f"\n---\n*Retrieved {total_items} items in {query_time:.1f}ms*"
-
-        return markdown
+        return _format_context_cascade_result(cascade_result, query_time)
 
     except Exception as e:
         logger.error(f"Context cascade failed: {e}")

@@ -33,6 +33,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   different loop": `Neo4jService` keeps one driver per asyncio event loop (the
   MCP server and the Admin UI run on separate loops in one process). The Memory
   Browser owns its own vector-service instance for the same reason.
+- `validate_reasoning` (MCP tool and `/validate-reasoning` HTTP route) no longer
+  reports a false `clean` result when claim extraction times out, errors, or
+  otherwise fails to run. Those cases now return the distinct `degraded`
+  status with the failure reason, so a validation that never actually ran is
+  never indistinguishable from one that ran and found nothing. Legitimate
+  zero-claim results (extraction succeeded, nothing to check) keep returning
+  `clean` with `claims_analyzed=0` made explicit in the summary text.
+- `load_context_cascade` no longer returns hits with a similarity score but
+  an empty body. The formatter was reading the wrong payload key for
+  vector-search prompt hits (`text` instead of the `matched_text` key
+  `VectorService` actually sets), so every "Previous Similar Questions" hit
+  rendered with no text. Each result layer (prompts, learnings, facts,
+  entities) now maps its own fields explicitly, and hits with no recoverable
+  text — e.g. a stale vector pointing at a record that no longer exists —
+  are dropped instead of rendered empty.
 
 ### Changed
 - `ADMIN_WEB_ENABLED` now defaults to `false` in code as well as in Docker Compose.

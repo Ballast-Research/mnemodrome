@@ -304,7 +304,13 @@ class TestReasoningValidationService:
         assert result.claims_analyzed == 0
 
     async def test_validate_response_claim_extraction_timeout(self, service):
-        """Test graceful handling of claim extraction timeout."""
+        """A claim-extraction timeout means nothing was checked.
+
+        It must NOT be reported as "clean" (regression for the bug where a
+        timed-out/failed extraction silently produced a false "clean"
+        result). The distinct "degraded" status communicates that the
+        validation did not actually run.
+        """
 
         async def slow_extract(*args, **kwargs):
             await asyncio.sleep(1.0)
@@ -313,10 +319,29 @@ class TestReasoningValidationService:
 
         result = await service.validate_response("Test response", timeout_ms=100)
 
-        assert result.validation_status == "clean"
+        assert result.validation_status == "degraded"
+        assert result.validation_status != "clean"
         assert (
             "timeout" in result.summary.lower() or "timed out" in result.summary.lower()
         )
+        assert result.claims_analyzed == 0
+
+    async def test_validate_response_claim_extraction_error(self, service):
+        """A claim-extraction exception (not a timeout) must also avoid "clean".
+
+        Regression for the bug where any extraction failure — timeout or
+        otherwise — was reported as a false "clean" result.
+        """
+        service.claim_extraction.extract_claims = AsyncMock(
+            side_effect=RuntimeError("extraction backend unavailable")
+        )
+
+        result = await service.validate_response("Test response")
+
+        assert result.validation_status == "degraded"
+        assert result.validation_status != "clean"
+        assert "error" in result.summary.lower()
+        assert result.claims_analyzed == 0
 
     async def test_validate_response_no_entities(self, service):
         """Test early return when no entities extracted."""
@@ -413,7 +438,9 @@ class TestReasoningValidationService:
         result = await service.validate_response("Test response")
 
         assert isinstance(result, ReasoningValidationResult)
-        assert result.validation_status == "clean"
+        # A failure means nothing was actually validated, so this must never
+        # be reported as "clean" (see BUG 1 regression tests above).
+        assert result.validation_status == "degraded"
 
     async def test_parallel_queries_complete_within_budget(self, service):
         """Test that parallel queries complete within per-query timeout."""
