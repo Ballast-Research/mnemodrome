@@ -236,24 +236,32 @@ class ReasoningValidationService:
                     timeout=0.5,
                 )
             except TimeoutError:
+                # Nothing was actually checked, so this must never be
+                # reported as "clean" — that would falsely assert the
+                # response was validated against stored knowledge.
                 logger.warning("Claim extraction timed out (exceeded 500ms budget)")
                 elapsed_ms = (time.time() - start_time) * 1000
                 return ReasoningValidationResult(
-                    validation_status="clean",
+                    validation_status="degraded",
                     elapsed_ms=elapsed_ms,
-                    summary="Claim extraction timed out",
+                    summary="Claim extraction timed out — validation did not run.",
                     claims_analyzed=0,
                     entities_checked=0,
+                    degraded_queries=["claim_extraction"],
                 )
             except Exception as e:
+                # Same rationale as the TimeoutError branch above: an
+                # extraction failure means validation never ran, so it must
+                # not be reported as "clean".
                 logger.error(f"Claim extraction failed: {e}")
                 elapsed_ms = (time.time() - start_time) * 1000
                 return ReasoningValidationResult(
-                    validation_status="clean",
+                    validation_status="degraded",
                     elapsed_ms=elapsed_ms,
-                    summary=f"Claim extraction error: {str(e)[:100]}",
+                    summary=f"Claim extraction error: {str(e)[:100]} — validation did not run.",
                     claims_analyzed=0,
                     entities_checked=0,
+                    degraded_queries=["claim_extraction"],
                 )
 
             if not claims:
@@ -262,7 +270,7 @@ class ReasoningValidationService:
                 return ReasoningValidationResult(
                     validation_status="clean",
                     elapsed_ms=elapsed_ms,
-                    summary="No assertions found to validate",
+                    summary="No assertions found to validate (claims_analyzed=0).",
                     claims_analyzed=0,
                     entities_checked=0,
                 )
@@ -275,7 +283,7 @@ class ReasoningValidationService:
                 return ReasoningValidationResult(
                     validation_status="clean",
                     elapsed_ms=elapsed_ms,
-                    summary="No factual assertions found.",
+                    summary="No factual assertions found (claims_analyzed=0).",
                     claims_analyzed=0,
                     entities_checked=0,
                 )
@@ -354,13 +362,15 @@ class ReasoningValidationService:
             return result
 
         except Exception as e:
-            # Outer exception handler - return safe degraded result
+            # Outer exception handler - return safe degraded result.
+            # An unhandled error means validation did not complete, so this
+            # must never be reported as "clean".
             logger.error(f"Unexpected error during validation: {e}")
             elapsed_ms = (time.time() - start_time) * 1000
             return ReasoningValidationResult(
-                validation_status="clean",
+                validation_status="degraded",
                 elapsed_ms=elapsed_ms,
-                summary=f"Validation error: {str(e)[:100]}",
+                summary=f"Validation error: {str(e)[:100]} — validation did not complete.",
                 claims_analyzed=0,
                 entities_checked=0,
                 degraded_queries=degraded_queries,
