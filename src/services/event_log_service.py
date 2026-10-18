@@ -44,10 +44,10 @@ def _create_db_connection():
 # Module-level connection — instantiated once at import time
 _db_connection = _create_db_connection()
 
-# Re-export sqlite_connection at module level so that existing patches of
-# `src.services.event_log_service.sqlite_connection` continue to work.
-# When the postgres backend is active this resolves to the PostgreSQL instance,
-# but patches in the SQLite unit tests always run under the default backend.
+# Backward-compatible alias for code that imports `sqlite_connection` from here.
+# When the postgres backend is active this resolves to the PostgreSQL instance.
+# Tests must patch `_db_connection`: EventLogService reads that name, so a
+# patch of this alias leaves the real connection in place.
 sqlite_connection = _db_connection
 
 
