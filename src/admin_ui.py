@@ -5,6 +5,7 @@ Feature 010: MCP Configuration Web Interface
 Provides FastAPI-based web interface for configuration management and monitoring.
 """
 
+import asyncio
 import subprocess
 from datetime import datetime
 from pathlib import Path
@@ -390,10 +391,18 @@ async def get_health(admin: str = Depends(verify_admin)):
         try:
             from src.services.neo4j_service import neo4j_service
 
+            connected = neo4j_service.driver is not None if neo4j_service else False
+            # Real round-trip on this (Admin UI) event loop when the service
+            # supports it; mocks without async ping keep the driver check.
+            ping = getattr(neo4j_service, "ping", None)
+            if neo4j_service and asyncio.iscoroutinefunction(ping):
+                try:
+                    connected = bool(await asyncio.wait_for(ping(), timeout=5))
+                except Exception as ping_error:
+                    logger.warning(f"Neo4j ping failed: {ping_error}")
+                    connected = False
             health_data["neo4j"] = {
-                "connected": neo4j_service.driver is not None
-                if neo4j_service
-                else False,
+                "connected": connected,
                 "uri": config.NEO4J_URI,
                 "database": config.NEO4J_DATABASE,
             }

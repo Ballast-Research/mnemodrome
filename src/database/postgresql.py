@@ -7,6 +7,7 @@ an optional dependency and must not be imported for the default SQLite path.
 
 from __future__ import annotations
 
+import asyncio
 import datetime as _dt
 import json
 import os
@@ -35,6 +36,29 @@ def _rewrite_placeholders(query: str) -> str:
     return re.sub(r"\?", replace, query)
 
 
+def _running_loop() -> asyncio.AbstractEventLoop | None:
+    try:
+        return asyncio.get_running_loop()
+    except RuntimeError:
+        return None
+
+
+class _LoopAwareAcquire:
+    """Async context manager that acquires from the running loop's pool."""
+
+    def __init__(self, owner: PostgreSQLConnection) -> None:
+        self._owner = owner
+        self._cm = None
+
+    async def __aenter__(self):
+        pool = await self._owner._pool_for_running_loop()
+        self._cm = pool.acquire()
+        return await self._cm.__aenter__()
+
+    async def __aexit__(self, exc_type, exc, tb):
+        return await self._cm.__aexit__(exc_type, exc, tb)
+
+
 class PostgreSQLConnection:
     """Async PostgreSQL connection manager with connection pooling.
 
@@ -59,6 +83,12 @@ class PostgreSQLConnection:
 
         self.pool = None  # asyncpg.Pool, typed as Any to avoid static import
         self._connected: bool = False
+        # asyncpg pools are bound to the event loop that created them. The MCP
+        # server and the Admin UI run on different loops in one process, so a
+        # second loop gets its own small pool (Feature 039).
+        self._pool_loop: asyncio.AbstractEventLoop | None = None
+        self._loop_pools: dict[asyncio.AbstractEventLoop, Any] = {}
+        self._loop_pool_lock: asyncio.Lock | None = None
 
     async def connect(self) -> None:
         """Establish asyncpg connection pool to PostgreSQL.
@@ -72,29 +102,9 @@ class PostgreSQLConnection:
         if self._connected:
             return
 
-        # Import here so asyncpg is only loaded for the postgres backend
-        import asyncpg  # noqa: PLC0415
-
         try:
-            pool_kwargs: dict[str, Any] = dict(
-                min_size=self._min_size,
-                max_size=self._max_size,
-                command_timeout=10,
-                server_settings={"search_path": "event_logs,public"},
-            )
-
-            if self._dsn:
-                self.pool = await asyncpg.create_pool(dsn=self._dsn, **pool_kwargs)
-            else:
-                self.pool = await asyncpg.create_pool(
-                    host=self.host,
-                    port=self.port,
-                    database=self.database,
-                    user=self.user,
-                    password=self._password,
-                    **pool_kwargs,
-                )
-
+            self.pool = await self._create_pool(self._min_size, self._max_size)
+            self._pool_loop = _running_loop()
             self._connected = True
             logger.info(
                 f"PostgreSQL connection pool established: {self.backend_description}"
@@ -103,18 +113,66 @@ class PostgreSQLConnection:
             logger.error(f"Failed to connect to PostgreSQL: {e}")
             raise
 
+    async def _create_pool(self, min_size: int, max_size: int):
+        # Import here so asyncpg is only loaded for the postgres backend
+        import asyncpg  # noqa: PLC0415
+
+        pool_kwargs: dict[str, Any] = dict(
+            min_size=min_size,
+            max_size=max_size,
+            command_timeout=10,
+            server_settings={"search_path": "event_logs,public"},
+        )
+        if self._dsn:
+            return await asyncpg.create_pool(dsn=self._dsn, **pool_kwargs)
+        return await asyncpg.create_pool(
+            host=self.host,
+            port=self.port,
+            database=self.database,
+            user=self.user,
+            password=self._password,
+            **pool_kwargs,
+        )
+
+    async def _pool_for_running_loop(self):
+        """Pool for the running loop; creates a small one for a second loop."""
+        loop = _running_loop()
+        if self._pool_loop is None or loop is None or loop is self._pool_loop:
+            return self.pool
+        pool = self._loop_pools.get(loop)
+        if pool is not None:
+            return pool
+        if self._loop_pool_lock is None:
+            self._loop_pool_lock = asyncio.Lock()
+        async with self._loop_pool_lock:
+            pool = self._loop_pools.get(loop)
+            if pool is None:
+                pool = await self._create_pool(1, max(2, self._max_size // 4))
+                self._loop_pools[loop] = pool
+                logger.info("PostgreSQL pool created for a second event loop")
+        return pool
+
     async def disconnect(self) -> None:
-        """Close connection pool."""
+        """Close every connection pool."""
+        for pool in list(self._loop_pools.values()):
+            try:
+                await pool.close()
+            except Exception as e:  # pragma: no cover - best effort
+                logger.warning(f"Error closing secondary PostgreSQL pool: {e}")
+        self._loop_pools.clear()
         if self.pool:
             await self.pool.close()
             self._connected = False
+            self._pool_loop = None
             logger.info("PostgreSQL connection pool closed")
 
     def _acquire(self):
-        """Return a connection context manager from the pool."""
+        """Return a connection context manager from the right pool."""
         if not self._connected:
             raise RuntimeError("Connection pool not initialized. Call connect() first.")
-        return self.pool.acquire()
+        if self._pool_loop is None or _running_loop() in (None, self._pool_loop):
+            return self.pool.acquire()
+        return _LoopAwareAcquire(self)
 
     @staticmethod
     def _coerce_arg(val: Any) -> Any:

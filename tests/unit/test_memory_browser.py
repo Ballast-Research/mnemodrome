@@ -433,3 +433,86 @@ def test_neo4j_service_driver_setter_keeps_mock_semantics():
     assert svc.driver is mock
     svc.driver = None
     assert svc.driver is None
+
+
+# ---------------------------------------------------------------------------
+# PostgreSQLConnection: one pool per event loop (dual-server process)
+# ---------------------------------------------------------------------------
+
+
+def _fake_pool(name):
+    conn = MagicMock(name=f"{name}-conn")
+    acquire_cm = MagicMock()
+    acquire_cm.__aenter__ = AsyncMock(return_value=conn)
+    acquire_cm.__aexit__ = AsyncMock(return_value=False)
+    pool = MagicMock(name=name)
+    pool.acquire = MagicMock(return_value=acquire_cm)
+    pool.close = AsyncMock()
+    return pool, conn
+
+
+def test_postgres_connection_uses_one_pool_per_event_loop():
+    import asyncio
+
+    from src.database.postgresql import PostgreSQLConnection
+
+    pools = []
+
+    async def fake_create(self, min_size, max_size):
+        pool, conn = _fake_pool(f"pool{len(pools)}")
+        pools.append((pool, conn, min_size))
+        return pool
+
+    async def grab(db):
+        async with db._acquire() as conn:
+            return conn
+
+    db = PostgreSQLConnection()
+    with patch.object(PostgreSQLConnection, "_create_pool", fake_create):
+        loop_a = asyncio.new_event_loop()
+        loop_b = asyncio.new_event_loop()
+        try:
+            loop_a.run_until_complete(db.connect())
+            assert loop_a.run_until_complete(grab(db)) is pools[0][1]
+            assert loop_b.run_until_complete(grab(db)) is pools[1][1]
+            assert loop_b.run_until_complete(grab(db)) is pools[1][1]
+            assert len(pools) == 2 and pools[1][2] == 1  # small second pool
+            loop_a.run_until_complete(db.disconnect())
+            assert pools[0][0].close.await_count == 1
+            assert pools[1][0].close.await_count == 1
+        finally:
+            loop_a.close()
+            loop_b.close()
+
+
+def test_postgres_connection_injected_pool_still_used():
+    """Tests that set .pool directly (no connect) keep working."""
+    import asyncio
+
+    from src.database.postgresql import PostgreSQLConnection
+
+    db = PostgreSQLConnection()
+    pool, conn = _fake_pool("injected")
+    db.pool = pool
+    db._connected = True
+
+    async def grab():
+        async with db._acquire() as c:
+            return c
+
+    assert asyncio.run(grab()) is conn
+
+
+class TestAdminHealthNeo4jPing:
+    def test_health_reports_real_ping(self, client):
+        from src.services.neo4j_service import Neo4jService
+
+        svc = Neo4jService()
+        svc.ping = AsyncMock(return_value=True)
+        with patch("src.services.neo4j_service.neo4j_service", svc):
+            r = client.get("/admin/health", headers=AUTH)
+        assert r.json()["neo4j"]["connected"] is True
+        svc.ping = AsyncMock(side_effect=OSError("down"))
+        with patch("src.services.neo4j_service.neo4j_service", svc):
+            r = client.get("/admin/health", headers=AUTH)
+        assert r.json()["neo4j"]["connected"] is False
