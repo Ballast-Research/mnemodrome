@@ -103,23 +103,20 @@ mnemodrome/
 
 ```python
 def capture_learning(
-    title: str,
-    content: str,
-    category: str = "general",
-    auto_deduplicate: bool = True
+    title: str, content: str, category: str = "general", auto_deduplicate: bool = True
 ) -> str:
     """
     Capture structured learning in dual memory layers.
-    
+
     Args:
         title: Brief, descriptive learning title
         content: Full learning content (markdown supported)
         category: Organization category
         auto_deduplicate: Enable pre-capture validation
-        
+
     Returns:
         Success message with file path and Neo4j UUID
-        
+
     Raises:
         ValueError: If title or content is empty
     """

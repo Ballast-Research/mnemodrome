@@ -10,7 +10,7 @@ import re
 import subprocess
 import time
 from datetime import UTC, datetime
-from enum import Enum
+from enum import StrEnum
 from typing import TypedDict
 
 import psutil
@@ -20,7 +20,7 @@ from src import config
 from src.services.deployment_detector import DeploymentDetector, DeploymentType
 
 
-class ServiceState(str, Enum):
+class ServiceState(StrEnum):
     """Service operational states."""
 
     RUNNING = "running"
@@ -30,7 +30,7 @@ class ServiceState(str, Enum):
     STOPPING = "stopping"
 
 
-class LogSeverity(str, Enum):
+class LogSeverity(StrEnum):
     """Log severity levels."""
 
     DEBUG = "DEBUG"
