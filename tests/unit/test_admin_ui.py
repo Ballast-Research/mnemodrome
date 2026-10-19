@@ -85,8 +85,8 @@ class TestAdminUI:
         """Create mock Neo4j service."""
         mock_neo4j = MagicMock()
         mock_neo4j.driver = MagicMock()  # Truthy value
-        mock_neo4j.driver.__bool__ = (
-            lambda self: True
+        mock_neo4j.driver.__bool__ = lambda self: (
+            True
         )  # Ensure it's truthy when checked
         return mock_neo4j
 

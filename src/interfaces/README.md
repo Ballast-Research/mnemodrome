@@ -53,10 +53,7 @@ print(context)
 
 # Capture a fact
 result = await api.capture_fact(
-    "Ollama",
-    "RUNS_ON",
-    "server-01",
-    context="User-level service for S-drive access"
+    "Ollama", "RUNS_ON", "server-01", context="User-level service for S-drive access"
 )
 
 # Cleanup
@@ -151,7 +148,7 @@ Capture factual relationship between two entities.
     "entity2_uuid": str,
     "relationship": dict,
     "markdown_path": str | None,
-    "duration_ms": float
+    "duration_ms": float,
 }
 ```
 
@@ -159,19 +156,12 @@ Capture factual relationship between two entities.
 ```python
 # Auto-classify entity types
 result = await api.capture_fact(
-    "Ollama",
-    "RUNS_ON",
-    "server-01",
-    context="User-level service"
+    "Ollama", "RUNS_ON", "server-01", context="User-level service"
 )
 
 # Override entity types
 result = await api.capture_fact(
-    "Alice",
-    "DEVELOPS",
-    "Mnemodrome",
-    entity1_type="Person",
-    entity2_type="Project"
+    "Alice", "DEVELOPS", "Mnemodrome", entity1_type="Person", entity2_type="Project"
 )
 ```
 
@@ -189,7 +179,7 @@ Extract and capture multi-entity graph from rich natural language.
     "entities_created": int,
     "relationships_created": int,
     "entity_uuids": dict[str, str],
-    "extraction_time_ms": float
+    "extraction_time_ms": float,
 }
 ```
 
@@ -214,11 +204,7 @@ Capture structured learning in dual-memory layers (Neo4j + markdown).
 
 **Returns**: Dict with capture results
 ```python
-{
-    "uuid": str,
-    "file_path": str,
-    "duration_ms": float
-}
+{"uuid": str, "file_path": str, "duration_ms": float}
 ```
 
 **Example**:
@@ -226,7 +212,7 @@ Capture structured learning in dual-memory layers (Neo4j + markdown).
 result = await api.capture_learning(
     title="Factory Pattern Eliminates Entity Duplication",
     content="Using Gang of Four Factory Pattern with MERGE ensures...",
-    category="breakthrough"
+    category="breakthrough",
 )
 ```
 
@@ -247,8 +233,8 @@ result = await api.capture_session(
     conversation_summary="Implemented Phase 4.5 factory pattern",
     key_insights=[
         "Gang of Four pattern eliminated duplicates",
-        "UUID-based resolution ensures single canonical node"
-    ]
+        "UUID-based resolution ensures single canonical node",
+    ],
 )
 ```
 
@@ -275,7 +261,7 @@ result = await api.invalidate_fact(
     "RUNS_ON",
     "server-02",
     reason="Migrated to server-01",
-    invalidation_type="natural"
+    invalidation_type="natural",
 )
 ```
 
@@ -301,7 +287,7 @@ result = await api.update_fact(
     "RUNS_ON",
     entity2_old="server-02",
     entity2_new="server-01",
-    context="Infrastructure migration"
+    context="Infrastructure migration",
 )
 ```
 
@@ -318,7 +304,7 @@ Health check for monitoring and orchestration.
     "status": "healthy" | "degraded",
     "neo4j": "connected" | "disconnected",
     "redis": "connected" | "disconnected",
-    "timestamp": float
+    "timestamp": float,
 }
 ```
 
@@ -391,6 +377,7 @@ await neo4j_service.ping()
 
 # Verify configuration
 from src.config import NEO4J_URI, NEO4J_USER, NEO4J_PASSWORD
+
 print(f"Connecting to: {NEO4J_URI}")
 ```
 
@@ -482,6 +469,7 @@ All methods delegate to existing services:
 ```python
 from src.interfaces.code_first import MnemodromeAPI
 
+
 async def analyze_and_capture():
     async with MnemodromeAPI() as api:
         # 1. Load context from previous work
@@ -493,7 +481,7 @@ async def analyze_and_capture():
             "Ollama",
             "RUNS_AS",
             "user-level service",
-            context="Needs S-drive access for models"
+            context="Needs S-drive access for models",
         )
 
         # 3. Capture complex scenario
@@ -517,7 +505,7 @@ async def analyze_and_capture():
             - Models: `/data/ollama-models`
             - GPUs: CUDA_VISIBLE_DEVICES=0,1,2
             """,
-            category="breakthrough"
+            category="breakthrough",
         )
 
         # 5. End-of-session synthesis
@@ -526,12 +514,14 @@ async def analyze_and_capture():
             key_insights=[
                 "User-level services needed for mounted storage access",
                 "System services lack permissions for S-drive",
-                "Configuration in ~/.config/systemd/user/"
-            ]
+                "Configuration in ~/.config/systemd/user/",
+            ],
         )
+
 
 # Run it
 import asyncio
+
 asyncio.run(analyze_and_capture())
 ```
 
