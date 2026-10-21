@@ -1,6 +1,6 @@
 # Mnemodrome Unified Memory Service Dependencies
 # Core framework dependencies
-neo4j>=5.26.0,<6.0.0           # Neo4j Python driver with async support
+neo4j>=5.26.0,<7.0.0           # Neo4j Python driver with async support
 asyncio-mqtt>=0.16.0           # For potential MQTT transport (future)
 pydantic>=2.5.0                # Data validation and serialization
 qdrant-client>=1.7.0           # Qdrant vector database client (Feature 022)
