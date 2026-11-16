@@ -34,7 +34,6 @@ class TestUpdateFactToolContract:
             patch("src.mcp_server.neo4j_service") as mock_neo4j,
             patch("src.mcp_server.file_service") as mock_pai,
             patch("src.mcp_server.conflict_detection_service") as mock_conflict,
-            patch("src.mcp_server.sync_service") as mock_sync,
         ):
             # Mock old fact retrieval
             old_uuid = "abc123-old"
@@ -76,14 +75,6 @@ class TestUpdateFactToolContract:
             )
 
             # Mock dual-memory sync
-            mock_sync.dual_write_with_retry = AsyncMock(
-                return_value={
-                    "status": "complete",
-                    "neo4j": True,
-                    "markdown": True,
-                    "queued": 0,
-                }
-            )
 
             # Import tool (will fail if not implemented)
             from src.mcp_server import update_fact
@@ -167,7 +158,6 @@ class TestUpdateFactToolContract:
         with (
             patch("src.mcp_server.neo4j_service") as mock_neo4j,
             patch("src.mcp_server.conflict_detection_service") as mock_conflict,
-            patch("src.mcp_server.sync_service") as mock_sync,
         ):
             # Mock old fact retrieval
             mock_neo4j.find_relationship = AsyncMock(
@@ -200,10 +190,6 @@ class TestUpdateFactToolContract:
                     "invalidated_at": "2025-10-11T14:23:00Z",
                     "supersession_chain": ["old-uuid", "new-uuid"],
                 }
-            )
-
-            mock_sync.dual_write_with_retry = AsyncMock(
-                return_value={"status": "complete", "neo4j": True, "markdown": True}
             )
 
             from src.mcp_server import update_fact
@@ -334,7 +320,6 @@ class TestUpdateFactToolContract:
         with (
             patch("src.mcp_server.neo4j_service") as mock_neo4j,
             patch("src.mcp_server.conflict_detection_service") as mock_conflict,
-            patch("src.mcp_server.sync_service") as mock_sync,
             patch("src.mcp_server.file_service") as mock_pai,
         ):
             # Mock old fact retrieval
@@ -371,14 +356,6 @@ class TestUpdateFactToolContract:
             mock_pai.write_file = MagicMock(side_effect=Exception("Disk full"))
 
             # Mock markdown failure (partial dual-memory)
-            mock_sync.dual_write_with_retry = AsyncMock(
-                return_value={
-                    "status": "partial",
-                    "neo4j": True,
-                    "markdown": False,
-                    "queued": 1,
-                }
-            )
 
             from src.mcp_server import update_fact
 
@@ -397,7 +374,7 @@ class TestUpdateFactToolContract:
             assert result["queued_retries"] == 0
 
     async def test_update_fact_dual_memory_both_fail(self):
-        """Test update_fact handles markdown write failure gracefully by queuing."""
+        """Test update_fact handles markdown write failure by reporting it as failed (no retry)."""
         with (
             patch("src.mcp_server.neo4j_service") as mock_neo4j,
             patch("src.mcp_server.conflict_detection_service") as mock_conflict,
@@ -458,7 +435,6 @@ class TestUpdateFactToolContract:
         with (
             patch("src.mcp_server.neo4j_service") as mock_neo4j,
             patch("src.mcp_server.conflict_detection_service") as mock_conflict,
-            patch("src.mcp_server.sync_service") as mock_sync,
             patch("src.mcp_server.file_service") as mock_pai,
         ):
             # Mock old fact retrieval
@@ -497,10 +473,6 @@ class TestUpdateFactToolContract:
             # Mock markdown success
             mock_pai.write_file = MagicMock(return_value="/path/to/file.md")
 
-            mock_sync.dual_write_with_retry = AsyncMock(
-                return_value={"status": "complete", "neo4j": True, "markdown": True}
-            )
-
             from src.mcp_server import update_fact
 
             result = await update_fact(
@@ -520,12 +492,16 @@ class TestUpdateFactToolContract:
             call_args = mock_neo4j.execute_update_transaction.call_args
             assert call_args is not None
 
+    @pytest.mark.xfail(
+        reason="patches src.mcp_server.validation_history_service, which does not "
+        "exist; pre-existing stale test, see GitLab carlos/mnemodrome#102",
+        strict=True,
+    )
     async def test_update_fact_validation_history_recorded(self):
         """Test that validation decisions are recorded for pattern learning."""
         with (
             patch("src.mcp_server.neo4j_service") as mock_neo4j,
             patch("src.mcp_server.conflict_detection_service") as mock_conflict,
-            patch("src.mcp_server.sync_service") as mock_sync,
             patch("src.mcp_server.validation_history_service") as mock_history,
         ):
             # Mock old fact retrieval
@@ -580,10 +556,6 @@ class TestUpdateFactToolContract:
                 }
             )
 
-            mock_sync.dual_write_with_retry = AsyncMock(
-                return_value={"status": "complete", "neo4j": True, "markdown": True}
-            )
-
             # Execute with validation_decision parameter (if supported)
             # Note: This tests future enhancement for validation decision tracking
             try:
@@ -611,7 +583,6 @@ class TestUpdateFactToolContract:
         with (
             patch("src.mcp_server.neo4j_service") as mock_neo4j,
             patch("src.mcp_server.conflict_detection_service") as mock_conflict,
-            patch("src.mcp_server.sync_service") as mock_sync,
         ):
             # Mock simple conflict
             mock_conflict.assess_complexity = AsyncMock(
@@ -628,10 +599,6 @@ class TestUpdateFactToolContract:
                     "supersession_chain": ["old-uuid", "new-uuid"],
                     "new_fact_context": context_text,
                 }
-            )
-
-            mock_sync.dual_write_with_retry = AsyncMock(
-                return_value={"status": "complete", "neo4j": True, "markdown": True}
             )
 
             from src.mcp_server import update_fact

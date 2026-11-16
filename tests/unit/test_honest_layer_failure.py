@@ -113,3 +113,20 @@ async def test_append_response_vector_not_updated_is_honest(mod):
     assert "queued" not in text.lower()
     assert "vector layer" in text
     assert "NOT regenerated" in text
+
+
+async def test_capture_context_degraded_markdown_failure_is_honest(mod):
+    mod.graph_factory.build_from_extraction = AsyncMock(
+        return_value={
+            "entities_created": 0,
+            "relationships_created": 0,
+            "entity_uuids": {},
+            "entity_types": [],
+            "relationships": [],
+        }
+    )
+    result = await mod.capture_context(context="Alice works at Acme Corp.")
+    assert "DEGRADED" in result
+    assert "FAILED" in result
+    assert "Markdown file layer" in result
+    assert "retry" not in result.lower().replace("nothing is retried", "")

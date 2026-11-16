@@ -1578,7 +1578,7 @@ The learning is now:
 - Stored in Neo4j temporal graph for relationship discovery
 - Saved as markdown in Obsidian vault for human review
 - Available via load_context for future sessions
-- Entity extraction and vector indexing queued (background)
+- Entity extraction and vector indexing started in background (not retried if it fails)
 """
 
     return response
@@ -2299,11 +2299,12 @@ async def capture_context(context: str) -> str:
             response = f"""⚠️ Capture DEGRADED: no entities extracted
 
 The model returned no usable entities for this context, so nothing was added to
-the graph (the raw text was still saved to Markdown). This usually means the
-configured extraction model produced empty or invalid output. Check the server
-logs and confirm a non-reasoning instruct model with an adequate LLM_MAX_TOKENS.
+the graph. This usually means the configured extraction model produced empty
+or invalid output. Check the server logs and confirm a non-reasoning instruct
+model with an adequate LLM_MAX_TOKENS.
 
 **Entities Extracted**: {result["entities_created"]}
+- Markdown: {"✓ raw text saved" if markdown_success else "FAILED (Markdown file layer write failed; nothing was saved in any layer and nothing is retried)"}
 """
         else:
             response = f"""✅ Graph captured successfully
@@ -2528,7 +2529,7 @@ async def invalidate_fact(
 
         except Exception as e:
             logger.warning(f"Markdown write failed (non-critical): {e}")
-            dual_memory_status = "partial"
+            dual_memory_status = "failed"  # Markdown layer; Neo4j write succeeded
 
         # Step 8: Build success response
         invalidation_time = (time.time() - start_time) * 1000
