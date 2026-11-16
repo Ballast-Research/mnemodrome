@@ -135,7 +135,7 @@ class EntityDeduplicator:
             n.uuid as uuid,
             n.created_at as created_at,
             count(DISTINCT r) as relationship_count,
-            collect(DISTINCT type(r)) as relationship_types
+            collect(DISTINCT r.type) as relationship_types
         ORDER BY relationship_count DESC, created_at ASC
         """
 

@@ -64,7 +64,7 @@ from src.services.entity_cache import entity_cache
 from src.services.entity_factory import entity_factory
 from src.services.event_log_service import event_log_service
 from src.services.evolution_candidate_service import EvolutionCandidateService
-from src.services.file_service import file_service
+from src.services.file_service import file_service, slugify
 from src.services.graph_factory import graph_factory
 from src.services.keyword_extractor import extract_keywords
 from src.services.llm_service import llm_service as llm_service_singleton
@@ -447,7 +447,9 @@ def _format_append_success_response(result: AppendResult) -> str:
     Returns:
         User-friendly confirmation of append
     """
-    embedding_status = "✓ Updated" if result.embedding_updated else "⚠ Pending"
+    embedding_status = (
+        "✓ Updated" if result.embedding_updated else f"⚠ {VECTOR_NOT_UPDATED_MSG}"
+    )
 
     return f"""✅ Content appended successfully
 
@@ -461,8 +463,33 @@ def _format_append_success_response(result: AppendResult) -> str:
 The learning has been updated in:
 - Markdown file (new section added)
 - Neo4j graph (metadata updated)
-- Qdrant vectors ({"regenerated" if result.embedding_updated else "queued for update"})
+- Qdrant vectors ({"regenerated" if result.embedding_updated else VECTOR_NOT_UPDATED_MSG})
 """
+
+
+# Nothing retries a failed layer write (sync_service/retry_queue are not wired
+# in; repair is a separate reconcile job), so responses must never say "retry".
+# The graph (Neo4j) write has already succeeded when these are used.
+MARKDOWN_WRITE_FAILED_MSG = (
+    "FAILED (Markdown file layer write failed; the graph (Neo4j) write "
+    "succeeded, so the fact exists but its Markdown copy is missing)"
+)
+VECTOR_NOT_UPDATED_MSG = (
+    "NOT regenerated (vector layer embedding failed; the Markdown and graph "
+    "writes succeeded, so the Qdrant copy is stale or missing)"
+)
+
+
+def _markdown_layer_status(markdown_success: bool) -> str:
+    """Honest status line for the Markdown file layer write.
+
+    Nothing retries a failed layer write (sync_service/retry_queue are not
+    wired in), so never claim a retry. The graph (Neo4j) write has already
+    succeeded when this is called: the fact exists, the file copy does not.
+    """
+    if markdown_success:
+        return "✓"
+    return MARKDOWN_WRITE_FAILED_MSG
 
 
 def _format_append_error_response(result: AppendResult) -> str:
@@ -1412,8 +1439,8 @@ async def capture_learning(
 
     # Create file path first (needed for Neo4j)
     timestamp = time.strftime("%Y%m%d-%H%M%S")
-    safe_title = title.lower().replace(" ", "-").replace("/", "-")[:50]
-    filename = f"learning-{safe_title}-{timestamp}.md"
+    safe_title = slugify(title, max_length=50)
+    filename = f"learning-{safe_title}-{timestamp}-{learning_uuid[:8]}.md"
     file_path = file_service._get_target_path(MemoryType.LEARNING) / filename
 
     # Prepare markdown content (non-async)
@@ -1590,7 +1617,7 @@ The learning is now:
 - Stored in Neo4j temporal graph for relationship discovery
 - Saved as markdown in Obsidian vault for human review
 - Available via load_context for future sessions
-- Entity extraction and vector indexing queued (background)
+- Entity extraction and vector indexing started in background (not retried if it fails)
 """
 
     return response
@@ -1749,7 +1776,7 @@ async def capture_session(
     # Create markdown file in markdown vault
     try:
         timestamp = time.strftime("%Y%m%d-%H%M%S")
-        filename = f"session-synthesis-{timestamp}.md"
+        filename = f"session-synthesis-{timestamp}-{str(session_uuid)[:8]}.md"
 
         markdown_content = f"""# Session Synthesis
 
@@ -2078,7 +2105,7 @@ async def capture_fact(
 
     # Generate filename with timestamp
     timestamp = time.strftime("%Y%m%d-%H%M%S")
-    filename = f"fact-{entity1.lower().replace(' ', '-')}-{timestamp}.md"
+    filename = f"fact-{slugify(entity1)}-{timestamp}-{entity1_uuid[:8]}.md"
 
     # Write markdown file (Neo4j already written via factories)
     try:
@@ -2086,9 +2113,8 @@ async def capture_fact(
         logger.info(f"✅ Markdown documentation created: {filepath}")
         markdown_success = True
     except Exception as e:
-        logger.warning(f"Markdown write failed (will queue): {e}")
+        logger.warning(f"Markdown write failed (no retry is scheduled): {e}")
         markdown_success = False
-        # TODO: Queue for retry via sync_service
 
     # Feature 022b / D1 (FR-011): Embed fact in Qdrant using the graph uuid as point id.
     # The graph uuid was app-generated at capture boundary — no fallback uuid4() needed.
@@ -2162,7 +2188,7 @@ async def capture_fact(
 {supersede_note}
 **Storage**:
 - Neo4j: ✓ (via RelationshipFactory)
-- Markdown: {"✓" if markdown_success else "queued for retry"}
+- Markdown: {_markdown_layer_status(markdown_success)}
 
 **Performance**: {write_time:.1f}ms
 {_degraded_note}"""
@@ -2239,7 +2265,7 @@ async def capture_context(context: str) -> str:
 
         # Generate filename with timestamp
         timestamp = time.strftime("%Y%m%d-%H%M%S")
-        filename = f"graph-{timestamp}.md"
+        filename = f"graph-{timestamp}-{uuid4().hex[:8]}.md"
 
         # Write markdown file
         try:
@@ -2314,11 +2340,12 @@ async def capture_context(context: str) -> str:
             response = f"""⚠️ Capture DEGRADED: no entities extracted
 
 The model returned no usable entities for this context, so nothing was added to
-the graph (the raw text was still saved to Markdown). This usually means the
-configured extraction model produced empty or invalid output. Check the server
-logs and confirm a non-reasoning instruct model with an adequate LLM_MAX_TOKENS.
+the graph. This usually means the configured extraction model produced empty
+or invalid output. Check the server logs and confirm a non-reasoning instruct
+model with an adequate LLM_MAX_TOKENS.
 
 **Entities Extracted**: {result["entities_created"]}
+- Markdown: {"✓ raw text saved" if markdown_success else "FAILED (Markdown file layer write failed; nothing was saved in any layer and nothing is retried)"}
 """
         else:
             response = f"""✅ Graph captured successfully
@@ -2355,7 +2382,7 @@ logs and confirm a non-reasoning instruct model with an adequate LLM_MAX_TOKENS.
         response += f"""
 **Storage**:
 - Neo4j: ✓ (via GraphFactory)
-- Markdown: {"✓" if markdown_success else "queued for retry"}
+- Markdown: {_markdown_layer_status(markdown_success)}
 
 **Performance**: {extraction_time:.1f}ms
 """
@@ -2375,8 +2402,15 @@ async def invalidate_fact(
     entity2: str,
     reason: str,
     invalidation_type: str = "both",
+    confirm: bool = False,
 ) -> dict:
-    """Non-destructive fact invalidation with temporal validity and complexity scoring. See /mnemodrome skill for guidance."""
+    """Non-destructive fact invalidation with temporal validity and complexity scoring. See /mnemodrome skill for guidance.
+
+    Facts older than 30 days (or otherwise high complexity) return
+    status="validation_required" instead of executing. No separate approval
+    tool exists: to proceed, call invalidate_fact again with the same
+    arguments and confirm=True.
+    """
     start_time = time.time()
     logger.info(f"Invalidating fact: {entity1} -{relation}-> {entity2}")
 
@@ -2430,7 +2464,12 @@ async def invalidate_fact(
 
         # Step 5: If high complexity, require human validation
         COMPLEXITY_THRESHOLD = 50
-        if complexity_score >= COMPLEXITY_THRESHOLD:
+        if confirm and complexity_score >= COMPLEXITY_THRESHOLD:
+            logger.info(
+                f"invalidate_fact confirmed by caller (complexity {complexity_score}): "
+                f"{entity1} -{relation}-> {entity2}"
+            )
+        if complexity_score >= COMPLEXITY_THRESHOLD and not confirm:
             # Generate recommendation rationale
             rationale_parts = []
 
@@ -2473,6 +2512,10 @@ async def invalidate_fact(
                 "rationale": ". ".join(rationale_parts)
                 + ". Human validation recommended.",
                 "options": ["approve", "reject", "modify"],
+                "how_to_proceed": (
+                    "To approve, call invalidate_fact again with the same "
+                    "arguments and confirm=True."
+                ),
             }
 
         # Step 6: Auto-resolve (low complexity) - invalidate the relationship
@@ -2502,7 +2545,8 @@ async def invalidate_fact(
         try:
             timestamp = time.strftime("%Y%m%d-%H%M%S")
             filename = (
-                f"invalidation-{entity1.lower().replace(' ', '-')}-{timestamp}.md"
+                f"invalidation-{slugify(entity1)}-{timestamp}"
+                f"-{str(relationship['uuid'])[:8]}.md"
             )
 
             markdown_content = f"""# Fact Invalidation
@@ -2543,7 +2587,7 @@ async def invalidate_fact(
 
         except Exception as e:
             logger.warning(f"Markdown write failed (non-critical): {e}")
-            dual_memory_status = "partial"
+            dual_memory_status = "failed"  # Markdown layer; Neo4j write succeeded
 
         # Step 8: Build success response
         invalidation_time = (time.time() - start_time) * 1000
@@ -2561,6 +2605,7 @@ async def invalidate_fact(
             "reason": reason,
             "preserved": True,
             "complexity_score": complexity_score,
+            "confirmed": bool(confirm),
             "dual_memory_status": dual_memory_status,
             "performance_ms": round(invalidation_time, 1),
         }
@@ -2583,8 +2628,17 @@ async def update_fact(
     entity2_new: str,
     context: str = "",
     conflict_resolution: str = "prompt",
+    confirm: bool = False,
 ) -> dict:
-    """Atomically supersede a fact with a new one via supersession chain. See /mnemodrome skill for guidance."""
+    """Atomically supersede a fact with a new one via supersession chain. See /mnemodrome skill for guidance.
+
+    In the default conflict_resolution="prompt" mode (and in "auto" mode for
+    high-complexity facts, e.g. older than 30 days) this returns
+    status="validation_required" instead of executing. No separate approval
+    tool exists: to proceed, call update_fact again with the same arguments
+    and confirm=True. confirm=True skips the validation gate in "prompt" and
+    "auto" modes; "error" mode still raises.
+    """
     start_time = time.time()
     logger.info(f"Updating fact: {entity1} -{relation}-> {entity2_old} → {entity2_new}")
 
@@ -2644,6 +2698,14 @@ async def update_fact(
                 f"Old fact exists: {entity1} -{relation}-> {entity2_old}"
             )
 
+        elif confirm:
+            # Caller explicitly approved: skip the validation gate.
+            logger.info(
+                f"update_fact confirmed by caller (complexity {complexity_score}, "
+                f"mode {conflict_resolution}): {entity1} -{relation}-> "
+                f"{entity2_old} → {entity2_new}"
+            )
+
         elif conflict_resolution == "prompt":
             # Prompt mode: always require validation
             created_at_raw = old_relationship.get("created_at") or old_relationship.get(
@@ -2693,6 +2755,10 @@ async def update_fact(
                 "recommendation": "validate",
                 "rationale": ". ".join(rationale_parts),
                 "options": ["approve", "reject", "modify"],
+                "how_to_proceed": (
+                    "To approve, call update_fact again with the same "
+                    "arguments and confirm=True."
+                ),
             }
 
         elif conflict_resolution == "auto":
@@ -2717,6 +2783,10 @@ async def update_fact(
                     "recommendation": "validate",
                     "rationale": f"Complexity score {complexity_score} exceeds threshold for auto-resolution",
                     "options": ["approve", "reject", "modify"],
+                    "how_to_proceed": (
+                        "To approve, call update_fact again with the same "
+                        "arguments and confirm=True."
+                    ),
                 }
 
         # Step 4: Execute atomic update transaction (auto-resolved or auto mode with simple conflict)
@@ -2783,11 +2853,11 @@ async def update_fact(
 
         # Step 5: Dual-memory sync (markdown documentation)
         dual_memory_status = {"neo4j": "success", "markdown": "success"}
-        queued_retries = 0
+        dual_memory_warning = None
 
         try:
             timestamp_str = time.strftime("%Y%m%d-%H%M%S")
-            filename = f"update-{entity1.lower().replace(' ', '-')}-{timestamp_str}.md"
+            filename = f"update-{slugify(entity1)}-{timestamp_str}-{new_uuid[:8]}.md"
 
             markdown_content = f"""# Fact Update (Supersession)
 
@@ -2831,9 +2901,9 @@ async def update_fact(
             logger.info(f"✅ Markdown documentation created: {filepath}")
 
         except Exception as e:
-            logger.warning(f"Markdown write failed (queued for retry): {e}")
-            dual_memory_status["markdown"] = "queued"
-            queued_retries = 1
+            logger.warning(f"Markdown write failed (no retry is scheduled): {e}")
+            dual_memory_status["markdown"] = "failed"
+            dual_memory_warning = MARKDOWN_WRITE_FAILED_MSG
 
         # Step 6: Build success response
         update_time = (time.time() - start_time) * 1000
@@ -2851,8 +2921,10 @@ async def update_fact(
             "supersession_chain": transaction_result["supersession_chain"],
             "complexity_score": complexity_score,
             "conflict_auto_resolved": conflict_resolution == "auto" and auto_resolvable,
+            "confirmed": bool(confirm),
             "dual_memory_status": dual_memory_status,
-            "queued_retries": queued_retries,
+            "queued_retries": 0,  # kept for API compat; nothing retries
+            "warning": dual_memory_warning,
             "performance_ms": round(update_time, 1),
         }
 

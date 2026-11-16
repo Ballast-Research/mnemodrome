@@ -31,7 +31,7 @@ def format_context_markdown(results: list[dict[str, Any]]) -> str:
         # Extract node properties safely
         source_name = _get_property(source, "name", "Unknown")
         target_name = _get_property(target, "name", "Unknown")
-        rel_type = _get_relationship_type(rel)
+        rel_type = relationship_predicate(rel)
         valid_at = _get_property(rel, "valid_at")
 
         markdown += f"## {i}. {source_name} → {target_name}\n\n"
@@ -116,25 +116,34 @@ def _get_property(obj: Any, key: str, default: Any = None) -> Any:
     return default
 
 
-def _get_relationship_type(rel: Any) -> str:
+def relationship_predicate(rel: Any) -> str:
     """
-    Extract relationship type from Neo4j relationship object.
+    Return the fact predicate of a neo4j relationship (or dict).
+
+    The predicate is stored in the relationship property ``type``; on a neo4j
+    Relationship the ``.type`` attribute is the edge type (always RELATES_TO).
+    Prefer the property and fall back to the edge type only if it is missing.
 
     Args:
         rel: Neo4j relationship object or dict
 
     Returns:
-        Relationship type string
+        Predicate string, "RELATES_TO" when nothing is available
     """
-    # Try 'type' attribute (Relationship objects)
-    if hasattr(rel, "type"):
-        return rel.type
+    if isinstance(rel, dict):
+        prop = rel.get("type")
+    elif hasattr(rel, "get"):
+        prop = rel.get("type")
+    else:
+        prop = None
+    if isinstance(prop, str) and prop:
+        return prop
 
-    # Try dict access
-    if isinstance(rel, dict) and "type" in rel:
-        return rel["type"]
+    edge_type = getattr(rel, "type", None)
+    if isinstance(edge_type, str) and edge_type:
+        return edge_type
 
-    return "RELATED_TO"
+    return "RELATES_TO"
 
 
 def _format_datetime(dt: Any) -> str:

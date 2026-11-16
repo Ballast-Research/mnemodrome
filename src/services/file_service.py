@@ -1,10 +1,28 @@
 """File storage service for markdown memory operations."""
 
+import re
 from pathlib import Path
 
 from loguru import logger
 
 from src.config import MNEMODROME_STORAGE_PATH, MemoryType, get_memory_path
+
+_UNSAFE_CHARS = re.compile(r"\W+")
+
+
+def slugify(text: str, max_length: int = 80) -> str:
+    """Turn arbitrary text into a safe, readable file-name component.
+
+    Keeps unicode letters/digits, lowercases, replaces everything else
+    (including "/", "\\", ".", whitespace) with "-", collapses runs, trims
+    and caps the length in UTF-8 bytes (file names are limited to 255 bytes,
+    not characters), cutting on a character boundary. Never returns an empty
+    string.
+    """
+    slug = _UNSAFE_CHARS.sub("-", str(text).lower())
+    slug = re.sub(r"-{2,}", "-", slug).strip("-")
+    slug = slug.encode("utf-8")[:max_length].decode("utf-8", "ignore").strip("-")
+    return slug or "untitled"
 
 
 class FileService:
@@ -107,13 +125,17 @@ class FileService:
         Raises:
             Exception if write fails (exception-based verification)
         """
-        # Ensure .md extension
-        if not filename.endswith(".md"):
-            filename = f"{filename}.md"
+        # Sanitize the name (slashes, "..", unsafe chars) and force .md extension
+        stem = filename[:-3] if filename.endswith(".md") else filename
+        filename = f"{slugify(stem, max_length=240)}.md"
 
         # Get target directory for this memory type
         target_dir = self._get_target_path(memory_type)
         filepath = target_dir / filename
+
+        # Defence in depth: the resolved path must stay inside the target dir
+        if target_dir.resolve() not in filepath.resolve().parents:
+            raise ValueError(f"Refusing to write outside {target_dir}: {filename}")
 
         try:
             filepath.write_text(content, encoding="utf-8")

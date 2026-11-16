@@ -10,6 +10,7 @@ from neo4j import AsyncDriver, AsyncGraphDatabase
 
 from src.config import NEO4J_DATABASE, NEO4J_PASSWORD, NEO4J_URI, NEO4J_USER
 from src.services.agent_auth import current_agent
+from src.services.context_formatter import relationship_predicate
 
 
 def _normalize_neo4j_value(value: Any) -> Any:
@@ -441,7 +442,7 @@ class Neo4jService:
                     {
                         "source": _normalize_neo4j_value(record["source"]),
                         "r": {
-                            "type": rel.type if hasattr(rel, "type") else "RELATES_TO",
+                            "type": relationship_predicate(rel),
                             "valid_at": _normalize_neo4j_value(
                                 rel.get("valid_at") if hasattr(rel, "get") else None
                             ),
@@ -543,7 +544,7 @@ class Neo4jService:
                     {
                         "source": _normalize_neo4j_value(record["source"]),
                         "r": {
-                            "type": rel.type if hasattr(rel, "type") else "RELATES_TO",
+                            "type": relationship_predicate(rel),
                             "valid_at": _normalize_neo4j_value(
                                 rel.get("valid_at") if hasattr(rel, "get") else None
                             ),
