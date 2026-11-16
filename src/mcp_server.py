@@ -2334,8 +2334,15 @@ async def invalidate_fact(
     entity2: str,
     reason: str,
     invalidation_type: str = "both",
+    confirm: bool = False,
 ) -> dict:
-    """Non-destructive fact invalidation with temporal validity and complexity scoring. See /mnemodrome skill for guidance."""
+    """Non-destructive fact invalidation with temporal validity and complexity scoring. See /mnemodrome skill for guidance.
+
+    Facts older than 30 days (or otherwise high complexity) return
+    status="validation_required" instead of executing. No separate approval
+    tool exists: to proceed, call invalidate_fact again with the same
+    arguments and confirm=True.
+    """
     start_time = time.time()
     logger.info(f"Invalidating fact: {entity1} -{relation}-> {entity2}")
 
@@ -2389,7 +2396,12 @@ async def invalidate_fact(
 
         # Step 5: If high complexity, require human validation
         COMPLEXITY_THRESHOLD = 50
-        if complexity_score >= COMPLEXITY_THRESHOLD:
+        if confirm and complexity_score >= COMPLEXITY_THRESHOLD:
+            logger.info(
+                f"invalidate_fact confirmed by caller (complexity {complexity_score}): "
+                f"{entity1} -{relation}-> {entity2}"
+            )
+        if complexity_score >= COMPLEXITY_THRESHOLD and not confirm:
             # Generate recommendation rationale
             rationale_parts = []
 
@@ -2432,6 +2444,10 @@ async def invalidate_fact(
                 "rationale": ". ".join(rationale_parts)
                 + ". Human validation recommended.",
                 "options": ["approve", "reject", "modify"],
+                "how_to_proceed": (
+                    "To approve, call invalidate_fact again with the same "
+                    "arguments and confirm=True."
+                ),
             }
 
         # Step 6: Auto-resolve (low complexity) - invalidate the relationship
@@ -2520,6 +2536,7 @@ async def invalidate_fact(
             "reason": reason,
             "preserved": True,
             "complexity_score": complexity_score,
+            "confirmed": bool(confirm),
             "dual_memory_status": dual_memory_status,
             "performance_ms": round(invalidation_time, 1),
         }
@@ -2542,8 +2559,17 @@ async def update_fact(
     entity2_new: str,
     context: str = "",
     conflict_resolution: str = "prompt",
+    confirm: bool = False,
 ) -> dict:
-    """Atomically supersede a fact with a new one via supersession chain. See /mnemodrome skill for guidance."""
+    """Atomically supersede a fact with a new one via supersession chain. See /mnemodrome skill for guidance.
+
+    In the default conflict_resolution="prompt" mode (and in "auto" mode for
+    high-complexity facts, e.g. older than 30 days) this returns
+    status="validation_required" instead of executing. No separate approval
+    tool exists: to proceed, call update_fact again with the same arguments
+    and confirm=True. confirm=True skips the validation gate in "prompt" and
+    "auto" modes; "error" mode still raises.
+    """
     start_time = time.time()
     logger.info(f"Updating fact: {entity1} -{relation}-> {entity2_old} → {entity2_new}")
 
@@ -2603,6 +2629,14 @@ async def update_fact(
                 f"Old fact exists: {entity1} -{relation}-> {entity2_old}"
             )
 
+        elif confirm:
+            # Caller explicitly approved: skip the validation gate.
+            logger.info(
+                f"update_fact confirmed by caller (complexity {complexity_score}, "
+                f"mode {conflict_resolution}): {entity1} -{relation}-> "
+                f"{entity2_old} → {entity2_new}"
+            )
+
         elif conflict_resolution == "prompt":
             # Prompt mode: always require validation
             created_at_raw = old_relationship.get("created_at") or old_relationship.get(
@@ -2652,6 +2686,10 @@ async def update_fact(
                 "recommendation": "validate",
                 "rationale": ". ".join(rationale_parts),
                 "options": ["approve", "reject", "modify"],
+                "how_to_proceed": (
+                    "To approve, call update_fact again with the same "
+                    "arguments and confirm=True."
+                ),
             }
 
         elif conflict_resolution == "auto":
@@ -2676,6 +2714,10 @@ async def update_fact(
                     "recommendation": "validate",
                     "rationale": f"Complexity score {complexity_score} exceeds threshold for auto-resolution",
                     "options": ["approve", "reject", "modify"],
+                    "how_to_proceed": (
+                        "To approve, call update_fact again with the same "
+                        "arguments and confirm=True."
+                    ),
                 }
 
         # Step 4: Execute atomic update transaction (auto-resolved or auto mode with simple conflict)
@@ -2810,6 +2852,7 @@ async def update_fact(
             "supersession_chain": transaction_result["supersession_chain"],
             "complexity_score": complexity_score,
             "conflict_auto_resolved": conflict_resolution == "auto" and auto_resolvable,
+            "confirmed": bool(confirm),
             "dual_memory_status": dual_memory_status,
             "queued_retries": queued_retries,
             "performance_ms": round(update_time, 1),
