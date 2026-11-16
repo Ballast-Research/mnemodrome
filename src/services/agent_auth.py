@@ -285,6 +285,7 @@ class AgentKeyStore:
         # load, drop every file-based key instead of keeping the last good
         # set (which could keep a just-revoked key valid). Used in enforce.
         self.fail_closed = fail_closed
+        self._load_failed = False
         self.path = Path(path) if path else None
         self._legacy_digest = hash_key(legacy_token) if legacy_token else None
         self._check_interval_s = check_interval_s
@@ -328,13 +329,19 @@ class AgentKeyStore:
                 doc = load_document(self.path)
             except Exception as exc:
                 if self.fail_closed:
-                    logger.critical(
-                        f"Agent keys file could not be loaded ({type(exc).__name__}); "
-                        f"FAILING CLOSED: dropping {len(self._digests)} loaded "
-                        "key(s). All file-based agent keys are rejected until "
-                        "the file is fixed."
-                    )
+                    if not self._load_failed:  # log once per failure episode
+                        logger.critical(
+                            f"Agent keys file could not be loaded "
+                            f"({type(exc).__name__}); FAILING CLOSED: dropping "
+                            f"{len(self._digests)} loaded key(s). All file-based "
+                            "agent keys are rejected until the file is fixed."
+                        )
+                    self._load_failed = True
                     self._digests = {}
+                    # Do not record the signature: a transient error (EACCES,
+                    # EMFILE, mid-edit) is retried on the next poll even if
+                    # mtime/size did not change.
+                    return
                 else:
                     logger.error(
                         f"Agent keys file could not be loaded ({type(exc).__name__}); "
@@ -342,6 +349,7 @@ class AgentKeyStore:
                     )
                 self._signature = signature
                 return
+            self._load_failed = False
             self._digests = {
                 name: entry["key_sha256"] for name, entry in doc["agents"].items()
             }
@@ -388,11 +396,12 @@ def current_agent() -> str | None:
         request = getattr(ctx, "request", None)
         scope = getattr(request, "scope", None)
         if isinstance(scope, dict):
+            # A request context exists: its own state is authoritative. An
+            # anonymous caller (served in warn mode) must not inherit the
+            # identity a session's contextvar got from an earlier caller.
             state = scope.get("state")
-            if isinstance(state, dict):
-                value = state.get(STATE_KEY)
-                if isinstance(value, str):
-                    return value
+            value = state.get(STATE_KEY) if isinstance(state, dict) else None
+            return value if isinstance(value, str) else None
     return _agent_var.get()
 
 

@@ -1049,3 +1049,49 @@ class TestLegacyTokenScope:
                 headers={"Authorization": f"Bearer {legacy}"},
             )
             assert r.status_code == 401
+
+
+class TestReviewFollowUps:
+    @pytest.mark.asyncio
+    async def test_anonymous_second_caller_gets_none_in_warn(self):
+        """Session task first used by an authed caller; an anonymous follow-up
+        request (no agent in its state) must not inherit that identity."""
+        import asyncio
+
+        from mcp.server.lowlevel.server import request_ctx
+
+        seen = []
+
+        async def session_task():
+            agent_auth.set_current_agent("first-caller")
+            for state in ({STATE_KEY: "first-caller"}, {}):
+                fake = SimpleNamespace(request=SimpleNamespace(scope={"state": state}))
+                tok = request_ctx.set(fake)
+                try:
+                    seen.append(agent_auth.current_agent())
+                finally:
+                    request_ctx.reset(tok)
+
+        await asyncio.create_task(session_task())
+        assert seen == ["first-caller", None]
+
+    def test_fail_closed_recovers_after_transient_read_error(
+        self, keys_file, log_lines
+    ):
+        key = agent_auth.add_agent(keys_file, "a")
+        store = AgentKeyStore(keys_file, check_interval_s=0, fail_closed=True)
+        assert store.authenticate(key) == "a"
+        keys_file.write_text(keys_file.read_text() + " ")  # change seen by poll
+        st = keys_file.stat()
+        mode = st.st_mode & 0o777
+        keys_file.chmod(0)
+        try:
+            if os.access(keys_file, os.R_OK):
+                pytest.skip("permissions not enforced (running as root)")
+            assert store.authenticate(key) is None
+            assert store.authenticate(key) is None  # still failing, no log spam
+        finally:
+            keys_file.chmod(mode)
+        os.utime(keys_file, ns=(st.st_atime_ns, st.st_mtime_ns))  # mtime unchanged
+        assert store.authenticate(key) == "a"
+        assert sum("FAILING CLOSED" in ln for ln in log_lines) == 1
