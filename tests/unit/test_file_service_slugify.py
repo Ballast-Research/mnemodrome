@@ -70,3 +70,35 @@ def test_same_second_names_differ(tmp_path):
     assert paths[0] != paths[1]
     assert len(list(svc.memory_paths[MemoryType.GRAPH].glob("*.md"))) == 2
     assert re.fullmatch(r"graph-\d{8}-\d{6}-[0-9a-f]{8}\.md", paths[0].name)
+
+
+def test_slugify_caps_bytes_not_characters():
+    out = slugify("日本語" * 100, max_length=80)
+    assert len(out.encode("utf-8")) <= 80
+    assert out  # cut on a character boundary, still valid text
+
+
+def test_long_non_ascii_name_writes(tmp_path):
+    svc = _service(tmp_path)
+    ts = time.strftime("%Y%m%d-%H%M%S")
+    name = f"fact-{slugify('日本語' * 100)}-{ts}-{uuid4().hex[:8]}.md"
+    path = svc.write_file(name, "x", MemoryType.FACT)
+    assert path.exists()
+    assert len(path.name.encode("utf-8")) <= 255
+    assert path.name.endswith(f"-{name[-11:-3]}.md")  # uuid suffix survives
+
+    # even a hostile over-long name is cut to a writable length
+    path2 = svc.write_file("日本語" * 200, "x", MemoryType.FACT)
+    assert path2.exists() and len(path2.name.encode("utf-8")) <= 255
+
+
+def test_written_path_equals_precomputed_path(tmp_path):
+    """Call sites (e.g. capture_learning) store a path before writing."""
+    svc = _service(tmp_path)
+    ts = time.strftime("%Y%m%d-%H%M%S")
+    for title in ["CI/CD pipeline", "Plain title", "日本語 テスト", "a\\b..c"]:
+        filename = f"learning-{slugify(title, max_length=50)}-{ts}-{uuid4().hex[:8]}.md"
+        stored = svc._get_target_path(MemoryType.LEARNING) / filename
+        written = svc.write_file(filename, "x", MemoryType.LEARNING)
+        assert written == stored
+        assert stored.exists()
