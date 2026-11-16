@@ -192,6 +192,13 @@ services:
       - LOG_FILE=/var/log/mnemodrome/mnemodrome.log
       # MCP Transport
       - MCP_TRANSPORT=${MCP_TRANSPORT:-streamable-http}
+      # Agent keys (see INSTALLATION.md "Agent keys"). Manage keys with:
+      #   docker compose exec mcp-server python -m src.cli.agent_keys add <name>
+      - MNEMODROME_AUTH_MODE=${MNEMODROME_AUTH_MODE:-off}
+      - MNEMODROME_AGENT_KEYS_FILE=/data/mnemodrome/agent-keys.json
+      - MNEMODROME_AUTH_EXEMPT_PATHS=${MNEMODROME_AUTH_EXEMPT_PATHS:-/health}
+      # Deprecated single shared hook token (accepted as one legacy key)
+      - MNEMODROME_HOOK_TOKEN=${MNEMODROME_HOOK_TOKEN:-}
     volumes:
       - ${DATA_ROOT:-./data}/mnemodrome:/data/mnemodrome
       - ${DATA_ROOT:-./data}/mnemodrome-logs:/var/log/mnemodrome

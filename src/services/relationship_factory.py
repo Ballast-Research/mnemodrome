@@ -10,6 +10,7 @@ from uuid import uuid4
 from loguru import logger
 
 from src.config import ACTR_CONFIDENCE_DEFAULT
+from src.services.agent_auth import current_agent
 from src.services.neo4j_service import neo4j_service
 from src.services.predicate_cardinality import is_functional
 
@@ -134,7 +135,8 @@ class RelationshipFactory:
             created_at: datetime(),
             invalid_at: NULL,
             expired_at: NULL,
-            confidence: $confidence_default
+            confidence: $confidence_default,
+            captured_by: $captured_by
         }]->(target)
         RETURN
             source.uuid as source_uuid,
@@ -157,6 +159,8 @@ class RelationshipFactory:
             "context": context,
             "confidence_default": ACTR_CONFIDENCE_DEFAULT,
             "relationship_uuid": relationship_uuid,
+            # Feature 040: provenance (None -> property not written)
+            "captured_by": current_agent(),
         }
 
         try:

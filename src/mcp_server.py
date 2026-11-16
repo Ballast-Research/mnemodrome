@@ -30,6 +30,9 @@ from src.config import (
     MCP_HOST,
     MCP_PORT,
     MCP_VERSION,
+    MNEMODROME_AGENT_KEYS_FILE,
+    MNEMODROME_AUTH_EXEMPT_PATHS,
+    MNEMODROME_AUTH_MODE,
     MNEMODROME_HOOK_TOKEN,
     PATTERN_RECOGNITION_ENABLED,
     PROJECT_CONTEXT_DEFAULT_DAYS,
@@ -44,6 +47,7 @@ from src.config import (
 from src.models.deduplication_models import AppendResult, ValidationResult
 from src.models.procedure_models import Procedure
 from src.models.reasoning_validation_models import ReasoningValidationResult
+from src.services import agent_auth
 from src.services.activation_service import (
     activation_service,
     calculate_activation,
@@ -581,7 +585,7 @@ def auto_capture_tool(func: Callable) -> Callable:
                     event_log_service.log_event(
                         event_type="tool_call",
                         action=tool_name,
-                        actor="mcp_server",
+                        actor=agent_auth.current_agent() or "mcp_server",
                         context={"duration_ms": duration_ms},
                         result="success" if success else "error",
                         metadata={"error": error_msg} if error_msg else None,
@@ -789,6 +793,23 @@ def _format_project_context_response(
     return "\n".join(parts)
 
 
+def _hook_auth_failed(request: Request) -> bool:
+    """Return True when a hook route must answer 401.
+
+    A request already authenticated by the per-agent key middleware
+    (Feature 040) passes. Otherwise the legacy single-token check applies
+    unchanged: when MNEMODROME_HOOK_TOKEN is set, the request must carry it.
+    """
+    scope = getattr(request, "scope", None)
+    state = scope.get("state") if isinstance(scope, dict) else None
+    if isinstance(state, dict) and isinstance(state.get(agent_auth.STATE_KEY), str):
+        return False
+    if MNEMODROME_HOOK_TOKEN:
+        auth = request.headers.get("Authorization", "")
+        return not secrets.compare_digest(auth, f"Bearer {MNEMODROME_HOOK_TOKEN}")
+    return False
+
+
 @mcp.custom_route("/health", methods=["GET"])
 async def handle_health(request: Request) -> Response:
     """HTTP health endpoint for Docker healthchecks and monitoring.
@@ -863,6 +884,11 @@ async def handle_health(request: Request) -> Response:
         "llm_extraction_degraded_count": llm_service_singleton.extraction_degraded_count,
         "llm_classification_degraded_count": llm_service_singleton.classification_degraded_count,
     }
+    if _auth_middleware is not None:
+        health_data["auth"] = {
+            "mode": _auth_middleware.mode,
+            **_auth_middleware.stats.as_dict(),
+        }
 
     return JSONResponse(health_data, status_code=status_code)
 
@@ -880,7 +906,8 @@ async def handle_project_context(request: Request) -> Response:
         days (int, optional): Days of history to include (default: PROJECT_CONTEXT_DEFAULT_DAYS)
 
     Headers:
-        Authorization: Bearer <MNEMODROME_HOOK_TOKEN>  (only if token configured)
+        Authorization: Bearer <agent key or legacy MNEMODROME_HOOK_TOKEN>
+        (or X-Mnemodrome-Key: <agent key>; see docs, Feature 040)
 
     Returns:
         200 text/markdown: Formatted project context
@@ -888,11 +915,9 @@ async def handle_project_context(request: Request) -> Response:
         401 application/json: {"error": "Unauthorized"}
         503 application/json: {"error": "Service unavailable"}
     """
-    # Optional auth check
-    if MNEMODROME_HOOK_TOKEN:
-        auth = request.headers.get("Authorization", "")
-        if not secrets.compare_digest(auth, f"Bearer {MNEMODROME_HOOK_TOKEN}"):
-            return JSONResponse({"error": "Unauthorized"}, status_code=401)
+    # Optional auth check (per-agent key or legacy hook token)
+    if _hook_auth_failed(request):
+        return JSONResponse({"error": "Unauthorized"}, status_code=401)
 
     project = request.query_params.get("project", "").strip()
     if not project:
@@ -1406,6 +1431,7 @@ async def capture_learning(
             category: $category,
             file_path: $file_path,
             append_count: 0,
+            captured_by: $captured_by,
             created_at: datetime(),
             last_accessed: datetime()
         })
@@ -1420,6 +1446,7 @@ async def capture_learning(
                 "content": content,
                 "category": category,
                 "file_path": str(file_path),
+                "captured_by": agent_auth.current_agent(),
             },
         )
 
@@ -1614,6 +1641,7 @@ async def capture_session(
             uuid: $uuid,
             summary: $summary,
             insights: $insights,
+            captured_by: $captured_by,
             created_at: datetime(),
             session_date: date()
         })
@@ -1626,6 +1654,7 @@ async def capture_session(
                 "uuid": session_uuid,
                 "summary": conversation_summary,
                 "insights": insights_text,
+                "captured_by": agent_auth.current_agent(),
             },
         )
 
@@ -4080,7 +4109,8 @@ async def handle_validate_reasoning_http(request: Request) -> Response:
         timeout_ms (int, optional): Validation timeout in ms (default: 1000)
 
     Headers:
-        Authorization: Bearer <MNEMODROME_HOOK_TOKEN>  (only if token configured)
+        Authorization: Bearer <agent key or legacy MNEMODROME_HOOK_TOKEN>
+        (or X-Mnemodrome-Key: <agent key>; see docs, Feature 040)
 
     Returns:
         200 application/json: ReasoningValidationResult as JSON
@@ -4088,11 +4118,9 @@ async def handle_validate_reasoning_http(request: Request) -> Response:
         401 application/json: {"error": "Unauthorized"}
         503 application/json: {"error": "Service unavailable"}
     """
-    # Optional auth check
-    if MNEMODROME_HOOK_TOKEN:
-        auth = request.headers.get("Authorization", "")
-        if not secrets.compare_digest(auth, f"Bearer {MNEMODROME_HOOK_TOKEN}"):
-            return JSONResponse({"error": "Unauthorized"}, status_code=401)
+    # Optional auth check (per-agent key or legacy hook token)
+    if _hook_auth_failed(request):
+        return JSONResponse({"error": "Unauthorized"}, status_code=401)
 
     try:
         body = await request.json()
@@ -4140,7 +4168,8 @@ async def handle_validate_prompt_http(request: Request) -> Response:
         timeout_ms (int, optional): Claim-extraction timeout in ms (default: 1000)
 
     Headers:
-        Authorization: Bearer <MNEMODROME_HOOK_TOKEN>  (only if token configured)
+        Authorization: Bearer <agent key or legacy MNEMODROME_HOOK_TOKEN>
+        (or X-Mnemodrome-Key: <agent key>; see docs, Feature 040)
 
     Returns:
         200 application/json: PromptValidationResult JSON::
@@ -4167,10 +4196,8 @@ async def handle_validate_prompt_http(request: Request) -> Response:
         503 application/json: {"error": "Service unavailable"}
     """
     # Optional auth check — identical to /validate-reasoning
-    if MNEMODROME_HOOK_TOKEN:
-        auth = request.headers.get("Authorization", "")
-        if not secrets.compare_digest(auth, f"Bearer {MNEMODROME_HOOK_TOKEN}"):
-            return JSONResponse({"error": "Unauthorized"}, status_code=401)
+    if _hook_auth_failed(request):
+        return JSONResponse({"error": "Unauthorized"}, status_code=401)
 
     try:
         body = await request.json()
@@ -5267,6 +5294,93 @@ def shutdown_handler(sig, frame):
         sys.exit(0)
 
 
+# Feature 040: the auth middleware wrapping the MCP HTTP app (None when stdio
+# or before the HTTP app is built). /health reads its counters.
+_auth_middleware: agent_auth.AgentKeyAuthMiddleware | None = None
+
+
+def build_mcp_http_app(
+    transport: str,
+    mode: str | None = None,
+    keys_file: str | None = None,
+    legacy_token: str | None = None,
+    exempt_paths: tuple[str, ...] | None = None,
+):
+    """Build the MCP Starlette app for an HTTP transport, wrapped in key auth.
+
+    Every route the MCP server exposes (/mcp, SSE endpoints, hook routes)
+    passes through AgentKeyAuthMiddleware. In mode "off" it is a no-op.
+    """
+    global _auth_middleware
+
+    mode = agent_auth.normalize_mode(MNEMODROME_AUTH_MODE if mode is None else mode)
+    keys_file = MNEMODROME_AGENT_KEYS_FILE if keys_file is None else keys_file
+    legacy_token = MNEMODROME_HOOK_TOKEN if legacy_token is None else legacy_token
+    exempt_paths = (
+        MNEMODROME_AUTH_EXEMPT_PATHS if exempt_paths is None else exempt_paths
+    )
+
+    if transport == "sse":
+        inner = mcp.sse_app()
+    elif transport == "streamable-http":
+        inner = mcp.streamable_http_app()
+    else:
+        raise ValueError(f"Not an HTTP transport: {transport}")
+
+    store = agent_auth.AgentKeyStore(
+        keys_file or None, legacy_token=legacy_token or None
+    )
+    middleware = agent_auth.AgentKeyAuthMiddleware(
+        inner, store, mode=mode, exempt_paths=exempt_paths
+    )
+    _auth_middleware = middleware
+
+    if mode == "off":
+        logger.info("Agent key auth: off (MNEMODROME_AUTH_MODE=off)")
+    else:
+        logger.info(
+            f"Agent key auth: {mode} ({store.agent_count} agent key(s)"
+            f"{', legacy hook token accepted' if store.has_legacy_token else ''}; "
+            f"exempt paths: {', '.join(exempt_paths) or 'none'})"
+        )
+        if store.has_legacy_token:
+            logger.warning(
+                "MNEMODROME_HOOK_TOKEN is deprecated; issue per-agent keys with "
+                "python -m src.cli.agent_keys add <name>"
+            )
+        if store.agent_count == 0 and not store.has_legacy_token:
+            log = logger.error if mode == "enforce" else logger.warning
+            log(
+                f"Agent key auth is '{mode}' but no keys are configured "
+                "(set MNEMODROME_AGENT_KEYS_FILE)"
+                + ("; every request will be rejected" if mode == "enforce" else "")
+            )
+    return middleware
+
+
+def run_mcp_transport(transport: str) -> None:
+    """Run the MCP server (blocking). HTTP transports get key auth."""
+    if transport == "stdio":
+        mcp.run(transport="stdio")
+        return
+
+    import anyio
+    import uvicorn
+
+    app = build_mcp_http_app(transport)
+
+    async def _serve() -> None:
+        config_ = uvicorn.Config(
+            app,
+            host=mcp.settings.host,
+            port=mcp.settings.port,
+            log_level=mcp.settings.log_level.lower(),
+        )
+        await uvicorn.Server(config_).serve()
+
+    anyio.run(_serve)
+
+
 async def run_admin_server():
     """
     Run Admin Web UI server (FastAPI).
@@ -5321,7 +5435,7 @@ async def main():
                 f"Starting MCP Server on {config.MCP_HOST}:{config.MCP_PORT} (transport={config.MCP_TRANSPORT})..."
             )
             mcp_task = tg.create_task(
-                asyncio.to_thread(mcp.run, transport=config.MCP_TRANSPORT)
+                asyncio.to_thread(run_mcp_transport, config.MCP_TRANSPORT)
             )
 
             # Admin HTTP Server - conditional, non-fatal if port unavailable

@@ -8,6 +8,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Per-agent API keys** for the MCP server (Feature 040). One key per agent,
+  stored as SHA-256 digests in a JSON file (`MNEMODROME_AGENT_KEYS_FILE`) and
+  compared in constant time. Covers `/mcp`, the SSE endpoints, and every hook
+  route. Clients send `Authorization: Bearer <key>` or `X-Mnemodrome-Key: <key>`.
+  Rollout switch `MNEMODROME_AUTH_MODE=off|warn|enforce` (default `off`): `warn`
+  serves and logs unauthenticated requests and counts them in `/health`;
+  `enforce` answers 401. `/health` stays open by default
+  (`MNEMODROME_AUTH_EXEMPT_PATHS`). The keys file is re-read on change, no restart.
+- `python -m src.cli.agent_keys add|list|rotate|revoke`: prints a new key once,
+  stores only its digest, never lists keys or digests.
+- Provenance: captures by an authenticated agent carry a `captured_by` property
+  (facts, learnings, sessions, procedures; property only, no new labels or
+  relationship types), and event-log entries record the agent as `actor` and in
+  `metadata.agent`.
 - **Memory Browser** in the Admin UI (`/admin/memory`): a read-only, human-readable
   view of every memory layer. Overview with per-layer counts, paths, and health;
   paginated Facts view from Neo4j with entity / relation / validity / date filters
@@ -54,6 +68,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Docker Compose publishes the Admin UI port on the host loopback only.
 - Documentation: README and INSTALLATION.md describe the umbrella storage path,
   how to enable the Admin UI, and a reverse-proxy example.
+- The MCP HTTP server is now started through `run_mcp_transport()` so the agent-key
+  middleware wraps the FastMCP app; the stdio transport is unchanged.
+- Documentation: README and INSTALLATION.md describe agent keys, rollout, and
+  client configuration.
+
+### Deprecated
+- `MNEMODROME_HOOK_TOKEN`. It keeps working on the hook routes; in `warn` and
+  `enforce` modes it is accepted on every route as the key `legacy-hook-token`.
+  Move hook clients to per-agent keys.
 
 ## [1.0.0] - 2026-06-15
 

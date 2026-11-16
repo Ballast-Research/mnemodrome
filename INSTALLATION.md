@@ -530,6 +530,121 @@ ECHO: Hello Mnemodrome
 
 ---
 
+## Agent keys (authentication)
+
+Out of the box the MCP server answers anyone who can reach port 8765. Per-agent keys let you decide which clients may read and write memory, rotate or revoke one client without touching the others, and see which agent wrote each capture. The Admin UI keeps its own login and is not affected.
+
+### 1. Choose a keys file
+
+```bash
+# .env
+MNEMODROME_AGENT_KEYS_FILE=./data/mnemodrome/agent-keys.json
+MNEMODROME_AUTH_MODE=off        # off (default) | warn | enforce
+```
+
+Docker Compose already sets `MNEMODROME_AGENT_KEYS_FILE=/data/mnemodrome/agent-keys.json` inside the container, which lives on the `${DATA_ROOT}/mnemodrome` bind mount, and passes `MNEMODROME_AUTH_MODE` through from `.env`.
+
+The file is JSON. It holds, per agent, the SHA-256 digest of the key, the creation and rotation dates, and a `scopes` list. The plaintext key is never written to disk. The CLI writes the file atomically with mode `0600`. `scopes` is reserved for a later read-only option; today every valid key has full access.
+
+### 2. Create one key per agent
+
+```bash
+# bare metal (from the repo, with the venv active)
+python -m src.cli.agent_keys add claude-code
+
+# Docker Compose
+docker compose exec mcp-server python -m src.cli.agent_keys add claude-code
+```
+
+The key (it starts with `mnd_`) is printed **once** on stdout. Put it in your secret manager or the client's environment right away; it cannot be shown again. Other commands:
+
+| Command | Effect |
+|---|---|
+| `list` | Agent names, created and rotated dates, scopes. Never keys or digests. |
+| `rotate <name>` | New key for that agent, printed once. The old key stops working. |
+| `revoke <name>` | Removes that agent. Its key stops working. |
+
+Add `--file PATH` to work on a file other than `$MNEMODROME_AGENT_KEYS_FILE`. The running server re-reads the file within about a second of a change; no restart is needed. If the file becomes unreadable, the server keeps the last good set of keys and logs an error.
+
+### 3. Configure the clients
+
+Send the key in the `Authorization` header:
+
+```
+Authorization: Bearer mnd_...
+```
+
+Clients that cannot set `Authorization` can use `X-Mnemodrome-Key: mnd_...` instead. If both are present, `Authorization` wins.
+
+**Claude Code** (`.mcp.json`; `${MNEMODROME_KEY}` is expanded from the environment, so the key stays out of the file):
+
+```json
+{
+  "mcpServers": {
+    "mnemodrome": {
+      "type": "http",
+      "url": "http://localhost:8765/mcp",
+      "headers": { "Authorization": "Bearer ${MNEMODROME_KEY}" }
+    }
+  }
+}
+```
+
+Or from the command line:
+
+```bash
+claude mcp add --transport http mnemodrome http://localhost:8765/mcp \
+  --header "Authorization: Bearer $MNEMODROME_KEY"
+```
+
+**Claude Desktop** through the `mcp-remote` bridge:
+
+```json
+{
+  "mcpServers": {
+    "mnemodrome": {
+      "command": "npx",
+      "args": ["mcp-remote", "http://localhost:8765/mcp",
+               "--header", "Authorization:${MNEMODROME_AUTH_HEADER}"],
+      "env": { "MNEMODROME_AUTH_HEADER": "Bearer mnd_..." }
+    }
+  }
+}
+```
+
+**Hooks and scripts** calling `/project-context`, `/validate-reasoning`, or `/validate-prompt` send the same header, for example `curl -H "Authorization: Bearer $MNEMODROME_KEY" ...`.
+
+**Any other MCP client** that speaks streamable HTTP: configure a custom header `Authorization: Bearer <key>` on the server entry.
+
+### 4. Roll out: off, warn, enforce
+
+1. Create keys and configure every client while the mode is still `off`.
+2. Set `MNEMODROME_AUTH_MODE=warn` and restart. Requests without a valid key are still served, but the server logs a warning (at most once a minute per client address and reason) and counts them. `GET /health` shows the counters under `auth`:
+   ```json
+   "auth": {"mode": "warn", "authenticated": 120, "unauthenticated_missing": 3,
+            "unauthenticated_invalid": 0, "rejected": 0}
+   ```
+3. When the unauthenticated counters stop growing, set `MNEMODROME_AUTH_MODE=enforce` and restart. Requests without a valid key now get `401 Unauthorized`.
+
+`MNEMODROME_AUTH_EXEMPT_PATHS` (default `/health`) lists paths that never need a key, so Docker health checks keep working. Set it to an empty value to protect `/health` as well. In `enforce` mode with no keys configured, every other request is rejected and the server logs an error at startup.
+
+### What is covered
+
+- `/mcp` (streamable HTTP), the SSE endpoints when `MCP_TRANSPORT=sse`, and the hook routes (`/project-context`, `/validate-reasoning`, `/validate-prompt`).
+- The stdio transport has no network listener and no keys.
+- Keys travel in clear text over plain HTTP. Across an untrusted network, put a TLS reverse proxy in front of port 8765 (see the nginx example below; proxy `/mcp` with buffering off).
+
+### Provenance
+
+When a request is authenticated, the agent name is recorded:
+
+- **Graph**: a `captured_by` property on facts (`RELATES_TO` relationships, including facts created by `update_fact` and `capture_context`), and on `Learning`, `Session`, and `Procedure` nodes. No new labels or relationship types. Captures made without a key (mode `off`, or unauthenticated requests in `warn`) have no `captured_by` property.
+- **Event log**: the agent name is the `actor` of automatic tool-call events and of events that did not name an actor, and is added to every event's metadata as `agent`. Query it with `query_events(actor="claude-code")`.
+
+### Legacy `MNEMODROME_HOOK_TOKEN` (deprecated)
+
+The old single shared token still works the same way on the hook routes. In `warn` and `enforce` modes it is also accepted on every route as one key named `legacy-hook-token`, and the server logs a deprecation warning at startup. Move each hook client to its own key, then remove the token.
+
 ## Admin UI and Memory Browser
 
 The Admin UI is a small FastAPI app that runs in the same process as the MCP server. It hosts the configuration editor, health dashboard, event viewer, service controls, and the **Memory Browser**, a read-only view of every memory layer (facts and entities from Neo4j, semantic search through Qdrant, events, and the Markdown files on disk).

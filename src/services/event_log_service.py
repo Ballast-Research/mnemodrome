@@ -21,6 +21,7 @@ from loguru import logger
 
 # Import config for Phase 2 settings
 from src import config
+from src.services.agent_auth import current_agent
 
 
 def _create_db_connection():
@@ -508,6 +509,13 @@ class EventLogService:
                     f"(SLA: {config.EVENT_LOG_PERFORMANCE_SLA_MS}ms)"
                 )
             return -1  # Silent failure if not configured to fail loud
+
+        # Feature 040: provenance — record the authenticated agent, if any.
+        agent = current_agent()
+        if agent:
+            if not actor:
+                actor = agent
+            metadata = {**(metadata or {}), "agent": agent}
 
         await self.connect()
 
