@@ -9,9 +9,9 @@ from unittest.mock import MagicMock
 from src.services.context_formatter import (
     _format_datetime,
     _get_property,
-    _get_relationship_type,
     _truncate_summary,
     format_context_markdown,
+    relationship_predicate,
 )
 
 
@@ -72,7 +72,7 @@ class TestFormatContextMarkdown:
         result = format_context_markdown(results)
 
         assert "Unknown → Unknown" in result
-        assert "RELATED_TO" in result
+        assert "RELATES_TO" in result
 
     def test_format_with_datetime_valid_at(self):
         """Test formatting with valid_at timestamp."""
@@ -294,32 +294,32 @@ class TestGetProperty:
 
 
 class TestGetRelationshipType:
-    """Tests for _get_relationship_type helper function."""
+    """Tests for relationship_predicate helper function."""
 
-    def test_get_relationship_type_from_object_attribute(self):
+    def testrelationship_predicate_from_object_attribute(self):
         """Test retrieving type from object with type attribute."""
         rel = MagicMock()
         rel.type = "USES"
-        result = _get_relationship_type(rel)
+        result = relationship_predicate(rel)
         assert result == "USES"
 
-    def test_get_relationship_type_from_dict(self):
+    def testrelationship_predicate_from_dict(self):
         """Test retrieving type from dict."""
         rel = {"type": "IMPLEMENTS"}
-        result = _get_relationship_type(rel)
+        result = relationship_predicate(rel)
         assert result == "IMPLEMENTS"
 
-    def test_get_relationship_type_default(self):
+    def testrelationship_predicate_default(self):
         """Test default relationship type when not found."""
         rel = {}
-        result = _get_relationship_type(rel)
-        assert result == "RELATED_TO"
+        result = relationship_predicate(rel)
+        assert result == "RELATES_TO"
 
-    def test_get_relationship_type_missing_attribute(self):
+    def testrelationship_predicate_missing_attribute(self):
         """Test with object without type attribute."""
         rel = MagicMock(spec=[])  # No attributes
-        result = _get_relationship_type(rel)
-        assert result == "RELATED_TO"
+        result = relationship_predicate(rel)
+        assert result == "RELATES_TO"
 
 
 class TestFormatDatetime:

@@ -393,7 +393,7 @@ class ContextRetrievalService:
             WHERE e.uuid IN $uuids
             OPTIONAL MATCH (e)-[r:RELATES_TO]->(related)
             WHERE r.type IS NOT NULL
-            RETURN e, collect({rel: type(r), target: related, context: r.context}) as relationships
+            RETURN e, collect({rel: r.type, target: related, context: r.context}) as relationships
             LIMIT 50
             """
 
@@ -456,7 +456,7 @@ class ContextRetrievalService:
               AND (e1.uuid IN $uuids OR e2.uuid IN $uuids)
               AND r.invalid_at IS NULL
               AND (r.expired_at IS NULL OR datetime(r.expired_at) > datetime())
-            RETURN e1.name as entity1, type(r) as relation, e2.name as entity2,
+            RETURN e1.name as entity1, r.type as relation, e2.name as entity2,
                    r.created_at as created_at, r.context as context
             ORDER BY r.created_at DESC
             LIMIT 20
