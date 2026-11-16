@@ -1095,3 +1095,31 @@ class TestReviewFollowUps:
         os.utime(keys_file, ns=(st.st_atime_ns, st.st_mtime_ns))  # mtime unchanged
         assert store.authenticate(key) == "a"
         assert sum("FAILING CLOSED" in ln for ln in log_lines) == 1
+
+
+class TestRollbackRestore:
+    def test_restore_identical_backup_recovers(self, keys_file):
+        key = agent_auth.add_agent(keys_file, "a")
+        backup = keys_file.with_name("backup.json")
+        backup.write_bytes(keys_file.read_bytes())
+        st = keys_file.stat()
+        os.utime(backup, ns=(st.st_atime_ns, st.st_mtime_ns))  # like cp -p
+
+        store = AgentKeyStore(keys_file, check_interval_s=0, fail_closed=True)
+        assert store.authenticate(key) == "a"
+        keys_file.write_text("{ corrupt")
+        assert store.authenticate(key) is None
+        os.replace(backup, keys_file)  # same mtime and size as the good load
+        assert keys_file.stat().st_mtime_ns == st.st_mtime_ns
+        assert keys_file.stat().st_size == st.st_size
+        assert store.authenticate(key) == "a"
+
+    def test_file_removed_resets_failure_flag(self, keys_file, log_lines):
+        agent_auth.add_agent(keys_file, "a")
+        store = AgentKeyStore(keys_file, check_interval_s=0, fail_closed=True)
+        keys_file.write_text("{ corrupt")
+        store.authenticate("x")
+        assert store._load_failed
+        keys_file.unlink()
+        store.authenticate("x")
+        assert not store._load_failed

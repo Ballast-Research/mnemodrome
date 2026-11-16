@@ -317,13 +317,14 @@ class AgentKeyStore:
                 signature = (st.st_mtime_ns, st.st_size)
             except FileNotFoundError:
                 signature = None
-            if not force and signature == self._signature:
+            if not force and signature is not None and signature == self._signature:
                 return
             if signature is None:
                 if self._digests:
                     logger.warning("Agent keys file removed; no agent keys loaded")
                 self._digests = {}
                 self._signature = None
+                self._load_failed = False
                 return
             try:
                 doc = load_document(self.path)
@@ -338,9 +339,11 @@ class AgentKeyStore:
                         )
                     self._load_failed = True
                     self._digests = {}
-                    # Do not record the signature: a transient error (EACCES,
-                    # EMFILE, mid-edit) is retried on the next poll even if
-                    # mtime/size did not change.
+                    # Forget the signature: a transient error (EACCES, EMFILE,
+                    # mid-edit) is retried on the next poll, and restoring a
+                    # backup with identical mtime/size (cp -p) is not mistaken
+                    # for "unchanged since the last good load".
+                    self._signature = None
                     return
                 else:
                     logger.error(
