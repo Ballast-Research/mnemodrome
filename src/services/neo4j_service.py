@@ -11,6 +11,19 @@ from neo4j import AsyncDriver, AsyncGraphDatabase
 from src.config import NEO4J_DATABASE, NEO4J_PASSWORD, NEO4J_URI, NEO4J_USER
 
 
+def _relationship_predicate(rel: Any) -> str:
+    """Return the fact predicate of a neo4j Relationship.
+
+    The predicate is stored in the relationship property ``type``; the
+    ``.type`` attribute is the edge type (always RELATES_TO). Prefer the
+    property and fall back to the edge type only if it is missing.
+    """
+    prop = rel.get("type") if hasattr(rel, "get") else None
+    if isinstance(prop, str) and prop:
+        return prop
+    return getattr(rel, "type", None) or "RELATES_TO"
+
+
 def _normalize_neo4j_value(value: Any) -> Any:
     """Convert neo4j.time temporal types to Python-native types.
 
@@ -438,7 +451,7 @@ class Neo4jService:
                     {
                         "source": _normalize_neo4j_value(record["source"]),
                         "r": {
-                            "type": rel.type if hasattr(rel, "type") else "RELATES_TO",
+                            "type": _relationship_predicate(rel),
                             "valid_at": _normalize_neo4j_value(
                                 rel.get("valid_at") if hasattr(rel, "get") else None
                             ),
@@ -540,7 +553,7 @@ class Neo4jService:
                     {
                         "source": _normalize_neo4j_value(record["source"]),
                         "r": {
-                            "type": rel.type if hasattr(rel, "type") else "RELATES_TO",
+                            "type": _relationship_predicate(rel),
                             "valid_at": _normalize_neo4j_value(
                                 rel.get("valid_at") if hasattr(rel, "get") else None
                             ),

@@ -126,13 +126,16 @@ def _get_relationship_type(rel: Any) -> str:
     Returns:
         Relationship type string
     """
-    # Try 'type' attribute (Relationship objects)
+    # Predicate lives in the 'type' property; on a neo4j Relationship the
+    # ``.type`` attribute is the edge type (always RELATES_TO), so prefer
+    # the property and fall back to the edge type only if it is missing.
+    if hasattr(rel, "get"):
+        prop = rel.get("type")
+        if isinstance(prop, str) and prop:
+            return prop
+
     if hasattr(rel, "type"):
         return rel.type
-
-    # Try dict access
-    if isinstance(rel, dict) and "type" in rel:
-        return rel["type"]
 
     return "RELATED_TO"
 
