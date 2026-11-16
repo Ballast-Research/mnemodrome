@@ -725,7 +725,7 @@ class TestMcpAppRoutes:
         with patch.object(ms, "MNEMODROME_HOOK_TOKEN", ""), TestClient(app) as client:
             assert client.get("/project-context").status_code == 400
 
-    def test_health_exempt_and_reports_auth_counters(self, mcp_app_factory):
+    def test_health_hides_auth_details_from_anonymous(self, mcp_app_factory):
         import src.mcp_server as ms
 
         app = mcp_app_factory("warn")
@@ -733,8 +733,21 @@ class TestMcpAppRoutes:
             patch.object(ms.neo4j_service, "ping", AsyncMock()),
             TestClient(app) as client,
         ):
-            client.get("/project-context")  # served (400), counted as missing
             r = client.get("/health")
+            assert r.status_code in (200, 503)
+            assert "auth" not in r.json()
+
+    def test_health_exempt_and_reports_auth_counters(self, mcp_app_factory, keys_file):
+        import src.mcp_server as ms
+
+        key = agent_auth.add_agent(keys_file, "ops")
+        app = mcp_app_factory("warn")
+        with (
+            patch.object(ms.neo4j_service, "ping", AsyncMock()),
+            TestClient(app) as client,
+        ):
+            client.get("/project-context")  # served (400), counted as missing
+            r = client.get("/health", headers={"Authorization": f"Bearer {key}"})
             assert r.status_code in (200, 503)
             auth = r.json()["auth"]
             assert auth["mode"] == "warn"
@@ -808,3 +821,231 @@ class TestCli:
         with patch("dotenv.load_dotenv", return_value=False):
             with pytest.raises(SystemExit):
                 agent_keys.main(["list"])
+
+
+# ---------------------------------------------------------------------------
+# Hardening (review follow-ups)
+# ---------------------------------------------------------------------------
+
+
+class TestWebsocketScopes:
+    @staticmethod
+    async def _run(mw, headers=()):
+        sent = []
+        calls = []
+
+        async def inner(scope, receive, send):
+            calls.append(scope)
+
+        mw.app = inner
+
+        async def send(msg):
+            sent.append(msg)
+
+        scope = {
+            "type": "websocket",
+            "path": "/mcp",
+            "headers": list(headers),
+            "client": ("1.2.3.4", 1),
+        }
+        await mw(scope, None, send)
+        return sent, calls
+
+    @pytest.mark.asyncio
+    async def test_enforce_rejects_websocket_without_key(self, keys_file):
+        mw = AgentKeyAuthMiddleware(None, AgentKeyStore(keys_file), mode="enforce")
+        sent, calls = await self._run(mw)
+        assert calls == []
+        assert sent == [{"type": "websocket.close", "code": 1008}]
+
+    @pytest.mark.asyncio
+    async def test_enforce_allows_websocket_with_key(self, keys_file):
+        key = agent_auth.add_agent(keys_file, "ws")
+        mw = AgentKeyAuthMiddleware(None, AgentKeyStore(keys_file), mode="enforce")
+        sent, calls = await self._run(
+            mw, [(b"authorization", f"Bearer {key}".encode())]
+        )
+        assert len(calls) == 1 and sent == []
+        assert calls[0]["state"][STATE_KEY] == "ws"
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("mode", ["off", "warn"])
+    async def test_off_and_warn_allow_websocket(self, keys_file, mode):
+        mw = AgentKeyAuthMiddleware(None, AgentKeyStore(keys_file), mode=mode)
+        sent, calls = await self._run(mw)
+        assert len(calls) == 1 and sent == []
+
+
+class TestPerRequestIdentity:
+    def test_request_state_beats_contextvar(self):
+        from mcp.server.lowlevel.server import request_ctx
+
+        token = agent_auth.set_current_agent("first-caller")
+        try:
+            fake = SimpleNamespace(
+                request=SimpleNamespace(scope={"state": {STATE_KEY: "second-caller"}})
+            )
+            rtoken = request_ctx.set(fake)
+            try:
+                assert agent_auth.current_agent() == "second-caller"
+            finally:
+                request_ctx.reset(rtoken)
+            assert agent_auth.current_agent() == "first-caller"
+        finally:
+            agent_auth.reset_current_agent(token)
+
+    @pytest.mark.asyncio
+    async def test_two_callers_one_session_task(self):
+        """A long-lived session task keeps the first caller's contextvar;
+        each tool call must still see its own request's agent."""
+        import asyncio
+
+        from mcp.server.lowlevel.server import request_ctx
+
+        seen = []
+
+        async def session_task():
+            agent_auth.set_current_agent("first-caller")  # set at session start
+            for who in ("first-caller", "second-caller"):
+                fake = SimpleNamespace(
+                    request=SimpleNamespace(scope={"state": {STATE_KEY: who}})
+                )
+                tok = request_ctx.set(fake)
+                try:
+                    seen.append(agent_auth.current_agent())
+                finally:
+                    request_ctx.reset(tok)
+
+        await asyncio.create_task(session_task())
+        assert seen == ["first-caller", "second-caller"]
+
+
+class TestLogHardening:
+    def test_path_is_escaped_and_capped(self, keys_file, log_lines):
+        store = AgentKeyStore(keys_file)
+        _mw, client = _app(store, "warn")
+        client.get("/x%0aFAKE-LOG-LINE%0d" + "A" * 5000)
+        lines = [ln for ln in log_lines if "AUTH warn" in ln]
+        assert lines
+        for line in lines:
+            body = line.rstrip("\n")
+            assert "\n" not in body and "\r" not in body  # no injected raw newline
+            assert len(body) < 1000
+
+    def test_safe_log_value(self):
+        text = agent_auth._safe_log_value("/a\nINFO forged\r\x1b[31m" + "B" * 500)
+        assert "\n" not in text and "\r" not in text and "\x1b" not in text
+        assert len(text) <= 200
+
+    def test_warn_table_is_bounded(self, keys_file):
+        store = AgentKeyStore(keys_file)
+        mw = AgentKeyAuthMiddleware(
+            None, store, mode="warn", max_warn_keys=8, warn_interval_s=0
+        )
+        for i in range(100):
+            mw._warn(f"10.0.0.{i}", "/p", "missing", rejected=False)
+        assert len(mw.stats._last_warn) == 8
+        assert ("10.0.0.99", "missing") in mw.stats._last_warn
+        assert ("10.0.0.0", "missing") not in mw.stats._last_warn
+
+
+class TestFailClosed:
+    def test_enforce_store_drops_keys_on_corrupt_file(self, keys_file, log_lines):
+        key = agent_auth.add_agent(keys_file, "revoked-soon")
+        store = AgentKeyStore(keys_file, check_interval_s=0, fail_closed=True)
+        assert store.authenticate(key) == "revoked-soon"
+        keys_file.write_text("{ not json")
+        assert store.authenticate(key) is None
+        assert any("FAILING CLOSED" in line for line in log_lines)
+
+    def test_recovers_when_file_fixed(self, keys_file):
+        key = agent_auth.add_agent(keys_file, "a")
+        store = AgentKeyStore(keys_file, check_interval_s=0, fail_closed=True)
+        good = keys_file.read_text()
+        keys_file.write_text("{ not json")
+        assert store.authenticate(key) is None
+        keys_file.write_text(good + " ")
+        assert store.authenticate(key) == "a"
+
+    def test_legacy_token_survives_fail_closed(self, keys_file):
+        agent_auth.add_agent(keys_file, "a")
+        legacy = agent_auth.generate_key()
+        store = AgentKeyStore(
+            keys_file, legacy_token=legacy, check_interval_s=0, fail_closed=True
+        )
+        keys_file.write_text("garbage")
+        assert store.authenticate(legacy) == LEGACY_AGENT_NAME
+
+    def test_enforce_app_wires_fail_closed(self, mcp_app_factory):
+        import src.mcp_server as ms
+
+        mcp_app_factory("enforce")
+        assert ms._auth_middleware.store.fail_closed is True
+        mcp_app_factory("warn")
+        assert ms._auth_middleware.store.fail_closed is False
+
+
+class TestKeysFileWrites:
+    def test_file_is_0600_and_atomic(self, keys_file):
+        agent_auth.add_agent(keys_file, "a")
+        assert (keys_file.stat().st_mode & 0o777) == 0o600
+        agent_auth.rotate_agent(keys_file, "a")
+        assert (keys_file.stat().st_mode & 0o777) == 0o600
+        assert not list(keys_file.parent.glob(".agent-keys-*"))
+
+    def test_concurrent_adds_do_not_lose_updates(self, keys_file):
+        import threading
+
+        errors = []
+
+        def work(i):
+            try:
+                agent_auth.add_agent(keys_file, f"agent-{i}")
+            except Exception as exc:  # pragma: no cover
+                errors.append(exc)
+
+        threads = [threading.Thread(target=work, args=(i,)) for i in range(12)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+        assert errors == []
+        assert len(agent_auth.list_agents(keys_file)) == 12
+
+    def test_lock_file_is_private(self, keys_file):
+        agent_auth.add_agent(keys_file, "a")
+        lock = keys_file.with_name(keys_file.name + ".lock")
+        assert lock.exists() and (lock.stat().st_mode & 0o777) == 0o600
+
+
+class TestLegacyTokenScope:
+    def test_legacy_only_on_hook_paths(self, keys_file):
+        legacy = agent_auth.generate_key()
+        store = AgentKeyStore(keys_file, legacy_token=legacy)
+        inner = Starlette(
+            routes=[
+                Route("/mcp", _whoami, methods=["GET", "POST"]),
+                Route("/project-context", _whoami),
+            ]
+        )
+        mw = AgentKeyAuthMiddleware(
+            inner,
+            store,
+            mode="enforce",
+            legacy_paths=("/project-context",),
+        )
+        client = TestClient(mw)
+        h = {"Authorization": f"Bearer {legacy}"}
+        assert client.get("/project-context", headers=h).status_code == 200
+        assert client.get("/mcp", headers=h).status_code == 401
+
+    def test_real_app_restricts_legacy_to_hook_routes(self, mcp_app_factory):
+        legacy = agent_auth.generate_key()
+        app = mcp_app_factory("enforce", legacy_token=legacy)
+        with TestClient(app) as client:
+            r = client.post(
+                "/mcp",
+                json={"jsonrpc": "2.0", "id": 1, "method": "ping"},
+                headers={"Authorization": f"Bearer {legacy}"},
+            )
+            assert r.status_code == 401

@@ -33,7 +33,10 @@ key has full access.
 
 from __future__ import annotations
 
+import collections
+import contextlib
 import contextvars
+import fcntl
 import hashlib
 import hmac
 import json
@@ -43,6 +46,7 @@ import secrets
 import tempfile
 import threading
 import time
+from collections.abc import Iterator
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
@@ -182,6 +186,27 @@ def save_document(path: Path, doc: dict[str, Any]) -> None:
         raise
 
 
+@contextlib.contextmanager
+def locked_document(path: Path) -> Iterator[None]:
+    """Exclusive inter-process lock around a read-modify-write of the keys file.
+
+    Uses ``flock`` on a sibling ``<name>.lock`` file (mode 0600) so concurrent
+    ``add`` / ``rotate`` / ``revoke`` runs cannot lose each other's updates.
+    The data file itself is replaced atomically by :func:`save_document`.
+    """
+    path.parent.mkdir(parents=True, exist_ok=True)
+    lock_path = path.with_name(path.name + ".lock")
+    fd = os.open(str(lock_path), os.O_RDWR | os.O_CREAT, 0o600)
+    try:
+        fcntl.flock(fd, fcntl.LOCK_EX)
+        yield
+    finally:
+        try:
+            fcntl.flock(fd, fcntl.LOCK_UN)
+        finally:
+            os.close(fd)
+
+
 def _now_iso() -> str:
     return datetime.now(UTC).replace(microsecond=0).isoformat()
 
@@ -189,39 +214,42 @@ def _now_iso() -> str:
 def add_agent(path: Path, name: str, scopes: list[str] | None = None) -> str:
     """Add an agent and return its new plaintext key (shown once)."""
     validate_agent_name(name)
-    doc = load_document(path)
-    if name in doc["agents"]:
-        raise ValueError(f"agent '{name}' already exists; use rotate")
-    key = generate_key()
-    doc["agents"][name] = {
-        "key_sha256": hash_key(key),
-        "created_at": _now_iso(),
-        "rotated_at": None,
-        "scopes": list(scopes or DEFAULT_SCOPES),
-    }
-    save_document(path, doc)
+    with locked_document(path):
+        doc = load_document(path)
+        if name in doc["agents"]:
+            raise ValueError(f"agent '{name}' already exists; use rotate")
+        key = generate_key()
+        doc["agents"][name] = {
+            "key_sha256": hash_key(key),
+            "created_at": _now_iso(),
+            "rotated_at": None,
+            "scopes": list(scopes or DEFAULT_SCOPES),
+        }
+        save_document(path, doc)
     return key
 
 
 def rotate_agent(path: Path, name: str) -> str:
     """Replace an agent's key and return the new plaintext key (shown once)."""
-    doc = load_document(path)
-    if name not in doc["agents"]:
-        raise KeyError(f"agent '{name}' not found")
-    key = generate_key()
-    doc["agents"][name]["key_sha256"] = hash_key(key)
-    doc["agents"][name]["rotated_at"] = _now_iso()
-    save_document(path, doc)
+    with locked_document(path):
+        doc = load_document(path)
+        if name not in doc["agents"]:
+            raise KeyError(f"agent '{name}' not found")
+        key = generate_key()
+        doc["agents"][name]["key_sha256"] = hash_key(key)
+        doc["agents"][name]["rotated_at"] = _now_iso()
+        save_document(path, doc)
     return key
 
 
 def revoke_agent(path: Path, name: str) -> None:
     """Remove an agent's key. Other agents are untouched."""
-    doc = load_document(path)
-    if name not in doc["agents"]:
-        raise KeyError(f"agent '{name}' not found")
-    del doc["agents"][name]
-    save_document(path, doc)
+    with locked_document(path):
+        doc = load_document(path)
+        if name not in doc["agents"]:
+            raise KeyError(f"agent '{name}' not found")
+        del doc["agents"][name]
+        save_document(path, doc)
 
 
 def list_agents(path: Path) -> list[dict[str, Any]]:
@@ -251,7 +279,12 @@ class AgentKeyStore:
         path: str | Path | None,
         legacy_token: str | None = None,
         check_interval_s: float = 1.0,
+        fail_closed: bool = False,
     ) -> None:
+        # fail_closed: when the keys file becomes unreadable after a good
+        # load, drop every file-based key instead of keeping the last good
+        # set (which could keep a just-revoked key valid). Used in enforce.
+        self.fail_closed = fail_closed
         self.path = Path(path) if path else None
         self._legacy_digest = hash_key(legacy_token) if legacy_token else None
         self._check_interval_s = check_interval_s
@@ -293,11 +326,20 @@ class AgentKeyStore:
                 return
             try:
                 doc = load_document(self.path)
-            except Exception as exc:  # keep the last good set
-                logger.error(
-                    f"Agent keys file could not be loaded ({type(exc).__name__}); "
-                    f"keeping {len(self._digests)} previously loaded key(s)"
-                )
+            except Exception as exc:
+                if self.fail_closed:
+                    logger.critical(
+                        f"Agent keys file could not be loaded ({type(exc).__name__}); "
+                        f"FAILING CLOSED: dropping {len(self._digests)} loaded "
+                        "key(s). All file-based agent keys are rejected until "
+                        "the file is fixed."
+                    )
+                    self._digests = {}
+                else:
+                    logger.error(
+                        f"Agent keys file could not be loaded ({type(exc).__name__}); "
+                        f"keeping {len(self._digests)} previously loaded key(s)"
+                    )
                 self._signature = signature
                 return
             self._digests = {
@@ -333,24 +375,25 @@ class AgentKeyStore:
 
 def current_agent() -> str | None:
     """Return the authenticated agent name for the current request, if any."""
-    name = _agent_var.get()
-    if name:
-        return name
+    # Per-request state first: on a streamable-http session the session task
+    # (and its contextvars) is created by the first request, so the contextvar
+    # alone could attribute later callers to the first one.
     try:
         from mcp.server.lowlevel.server import request_ctx  # noqa: PLC0415
 
         ctx = request_ctx.get()
     except (LookupError, ImportError):
-        return None
-    request = getattr(ctx, "request", None)
-    scope = getattr(request, "scope", None)
-    if not isinstance(scope, dict):
-        return None
-    state = scope.get("state")
-    if isinstance(state, dict):
-        value = state.get(STATE_KEY)
-        return value if isinstance(value, str) else None
-    return None
+        ctx = None
+    if ctx is not None:
+        request = getattr(ctx, "request", None)
+        scope = getattr(request, "scope", None)
+        if isinstance(scope, dict):
+            state = scope.get("state")
+            if isinstance(state, dict):
+                value = state.get(STATE_KEY)
+                if isinstance(value, str):
+                    return value
+    return _agent_var.get()
 
 
 def set_current_agent(name: str | None) -> contextvars.Token:
@@ -373,7 +416,9 @@ class AuthStats:
     missing: int = 0
     invalid: int = 0
     rejected: int = 0
-    _last_warn: dict[tuple[str, str], float] = field(default_factory=dict)
+    _last_warn: collections.OrderedDict[tuple[str, str], float] = field(
+        default_factory=collections.OrderedDict
+    )
 
     def as_dict(self) -> dict[str, int]:
         return {
@@ -394,7 +439,13 @@ class AgentKeyAuthMiddleware:
         mode: str = "off",
         exempt_paths: tuple[str, ...] = ("/health",),
         warn_interval_s: float = 60.0,
+        legacy_paths: tuple[str, ...] | None = None,
+        max_warn_keys: int = 1024,
     ) -> None:
+        # legacy_paths: when set, the legacy hook token authenticates only
+        # these paths (the hook routes); elsewhere it counts as an invalid key.
+        self.legacy_paths = tuple(legacy_paths) if legacy_paths is not None else None
+        self.max_warn_keys = max_warn_keys
         self.app = app
         self.store = store
         self.mode = normalize_mode(mode)
@@ -403,7 +454,8 @@ class AgentKeyAuthMiddleware:
         self.stats = AuthStats()
 
     async def __call__(self, scope: dict, receive: Any, send: Any) -> None:
-        if scope.get("type") != "http" or self.mode == "off":
+        scope_type = scope.get("type")
+        if scope_type not in ("http", "websocket") or self.mode == "off":
             await self.app(scope, receive, send)
             return
 
@@ -414,6 +466,12 @@ class AgentKeyAuthMiddleware:
         }
         presented = extract_presented_key(headers)
         agent = self.store.authenticate(presented)
+        if (
+            agent == LEGACY_AGENT_NAME
+            and self.legacy_paths is not None
+            and path not in self.legacy_paths
+        ):
+            agent = None  # legacy token is valid on the hook routes only
 
         if agent is None and path in self.exempt_paths:
             await self.app(scope, receive, send)
@@ -430,7 +488,11 @@ class AgentKeyAuthMiddleware:
             if self.mode == "enforce":
                 self.stats.rejected += 1
                 self._warn(client_host, path, reason, rejected=True)
-                await _send_401(send)
+                if scope_type == "websocket":
+                    # Close before accept; code 1008 = policy violation.
+                    await send({"type": "websocket.close", "code": 1008})
+                else:
+                    await _send_401(send)
                 return
             self._warn(client_host, path, reason, rejected=False)
             await self.app(scope, receive, send)
@@ -448,11 +510,17 @@ class AgentKeyAuthMiddleware:
 
     def _warn(self, client: str, path: str, reason: str, rejected: bool) -> None:
         now = time.monotonic()
-        key = (client, reason)
+        key = (client[:64], reason)
         last = self.stats._last_warn.get(key)
         if last is not None and now - last < self.warn_interval_s:
             return
         self.stats._last_warn[key] = now
+        self.stats._last_warn.move_to_end(key)
+        while len(self.stats._last_warn) > self.max_warn_keys:
+            self.stats._last_warn.popitem(last=False)
+        # The path is attacker-controlled: log it escaped (repr) and capped.
+        path = _safe_log_value(path)
+        client = _safe_log_value(client)
         action = "rejected (401)" if rejected else "served"
         counted = self.stats.missing if reason == "missing" else self.stats.invalid
         logger.warning(
@@ -461,6 +529,14 @@ class AgentKeyAuthMiddleware:
             f"{reason}_total={counted}). Give this client an agent key: "
             f"python -m src.cli.agent_keys add <name>"
         )
+
+
+def _safe_log_value(value: str, limit: int = 200) -> str:
+    """Escape (repr) and length-cap an untrusted value for log lines."""
+    text = repr(str(value))
+    if len(text) > limit:
+        text = text[: limit - 3] + "..."
+    return text
 
 
 async def _send_401(send: Any) -> None:

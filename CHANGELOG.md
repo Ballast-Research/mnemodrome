@@ -75,7 +75,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Deprecated
 - `MNEMODROME_HOOK_TOKEN`. It keeps working on the hook routes; in `warn` and
-  `enforce` modes it is accepted on every route as the key `legacy-hook-token`.
+  `enforce` modes it is accepted on the hook routes only, as the key `legacy-hook-token`.
   Move hook clients to per-agent keys.
 
 ## [1.0.0] - 2026-06-15

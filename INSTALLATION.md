@@ -564,7 +564,7 @@ The key (it starts with `mnd_`) is printed **once** on stdout. Put it in your se
 | `rotate <name>` | New key for that agent, printed once. The old key stops working. |
 | `revoke <name>` | Removes that agent. Its key stops working. |
 
-Add `--file PATH` to work on a file other than `$MNEMODROME_AGENT_KEYS_FILE`. The running server re-reads the file within about a second of a change; no restart is needed. If the file becomes unreadable, the server keeps the last good set of keys and logs an error.
+Add `--file PATH` to work on a file other than `$MNEMODROME_AGENT_KEYS_FILE`. The running server re-reads the file within about a second of a change; no restart is needed. Writes by the CLI are serialized with a file lock and replaced atomically (mode 0600). If the file becomes unreadable (for example invalid JSON): in `enforce` mode the server **fails closed**: it drops all file-based keys, logs a critical error, and rejects those keys until the file is fixed, so a revoked key can never stay valid because of a bad edit. In `warn` mode it keeps the last good set of keys and logs an error.
 
 ### 3. Configure the clients
 
@@ -619,7 +619,7 @@ claude mcp add --transport http mnemodrome http://localhost:8765/mcp \
 ### 4. Roll out: off, warn, enforce
 
 1. Create keys and configure every client while the mode is still `off`.
-2. Set `MNEMODROME_AUTH_MODE=warn` and restart. Requests without a valid key are still served, but the server logs a warning (at most once a minute per client address and reason) and counts them. `GET /health` shows the counters under `auth`:
+2. Set `MNEMODROME_AUTH_MODE=warn` and restart. Requests without a valid key are still served, but the server logs a warning (at most once a minute per client address and reason) and counts them. `GET /health` shows the counters under `auth` when the request carries a valid agent key (anonymous callers get liveness only):
    ```json
    "auth": {"mode": "warn", "authenticated": 120, "unauthenticated_missing": 3,
             "unauthenticated_invalid": 0, "rejected": 0}
@@ -643,7 +643,7 @@ When a request is authenticated, the agent name is recorded:
 
 ### Legacy `MNEMODROME_HOOK_TOKEN` (deprecated)
 
-The old single shared token still works the same way on the hook routes. In `warn` and `enforce` modes it is also accepted on every route as one key named `legacy-hook-token`, and the server logs a deprecation warning at startup. Move each hook client to its own key, then remove the token.
+The old single shared token still works the same way on the hook routes (`/project-context`, `/validate-reasoning`, `/validate-prompt`). In `warn` and `enforce` modes it is accepted on those routes only, as one key named `legacy-hook-token`; it does not authorize `/mcp`. The server logs a deprecation warning at startup. Move each hook client to its own key, then remove the token.
 
 ## Admin UI and Memory Browser
 

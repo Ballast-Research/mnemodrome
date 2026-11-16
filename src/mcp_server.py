@@ -793,6 +793,10 @@ def _format_project_context_response(
     return "\n".join(parts)
 
 
+# Routes the deprecated MNEMODROME_HOOK_TOKEN is allowed to authenticate.
+HOOK_ROUTE_PATHS = ("/project-context", "/validate-reasoning", "/validate-prompt")
+
+
 def _hook_auth_failed(request: Request) -> bool:
     """Return True when a hook route must answer 401.
 
@@ -884,7 +888,15 @@ async def handle_health(request: Request) -> Response:
         "llm_extraction_degraded_count": llm_service_singleton.extraction_degraded_count,
         "llm_classification_degraded_count": llm_service_singleton.classification_degraded_count,
     }
-    if _auth_middleware is not None:
+    # Auth mode and counters are operator detail: only shown to a caller that
+    # presented a valid agent key. Unauthenticated callers get liveness only.
+    scope_ = getattr(request, "scope", None)
+    state_ = scope_.get("state") if isinstance(scope_, dict) else None
+    if (
+        _auth_middleware is not None
+        and isinstance(state_, dict)
+        and isinstance(state_.get(agent_auth.STATE_KEY), str)
+    ):
         health_data["auth"] = {
             "mode": _auth_middleware.mode,
             **_auth_middleware.stats.as_dict(),
@@ -5328,10 +5340,17 @@ def build_mcp_http_app(
         raise ValueError(f"Not an HTTP transport: {transport}")
 
     store = agent_auth.AgentKeyStore(
-        keys_file or None, legacy_token=legacy_token or None
+        keys_file or None,
+        legacy_token=legacy_token or None,
+        fail_closed=(mode == "enforce"),
     )
     middleware = agent_auth.AgentKeyAuthMiddleware(
-        inner, store, mode=mode, exempt_paths=exempt_paths
+        inner,
+        store,
+        mode=mode,
+        exempt_paths=exempt_paths,
+        # The deprecated shared token only ever covered the hook routes.
+        legacy_paths=HOOK_ROUTE_PATHS,
     )
     _auth_middleware = middleware
 
