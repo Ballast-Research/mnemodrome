@@ -60,7 +60,7 @@ from src.services.entity_cache import entity_cache
 from src.services.entity_factory import entity_factory
 from src.services.event_log_service import event_log_service
 from src.services.evolution_candidate_service import EvolutionCandidateService
-from src.services.file_service import file_service
+from src.services.file_service import file_service, slugify
 from src.services.graph_factory import graph_factory
 from src.services.keyword_extractor import extract_keywords
 from src.services.llm_service import llm_service as llm_service_singleton
@@ -1402,8 +1402,8 @@ async def capture_learning(
 
     # Create file path first (needed for Neo4j)
     timestamp = time.strftime("%Y%m%d-%H%M%S")
-    safe_title = title.lower().replace(" ", "-").replace("/", "-")[:50]
-    filename = f"learning-{safe_title}-{timestamp}.md"
+    safe_title = slugify(title, max_length=50)
+    filename = f"learning-{safe_title}-{timestamp}-{learning_uuid[:8]}.md"
     file_path = file_service._get_target_path(MemoryType.LEARNING) / filename
 
     # Prepare markdown content (non-async)
@@ -1735,7 +1735,7 @@ async def capture_session(
     # Create markdown file in markdown vault
     try:
         timestamp = time.strftime("%Y%m%d-%H%M%S")
-        filename = f"session-synthesis-{timestamp}.md"
+        filename = f"session-synthesis-{timestamp}-{str(session_uuid)[:8]}.md"
 
         markdown_content = f"""# Session Synthesis
 
@@ -2064,7 +2064,7 @@ async def capture_fact(
 
     # Generate filename with timestamp
     timestamp = time.strftime("%Y%m%d-%H%M%S")
-    filename = f"fact-{entity1.lower().replace(' ', '-')}-{timestamp}.md"
+    filename = f"fact-{slugify(entity1)}-{timestamp}-{entity1_uuid[:8]}.md"
 
     # Write markdown file (Neo4j already written via factories)
     try:
@@ -2224,7 +2224,7 @@ async def capture_context(context: str) -> str:
 
         # Generate filename with timestamp
         timestamp = time.strftime("%Y%m%d-%H%M%S")
-        filename = f"graph-{timestamp}.md"
+        filename = f"graph-{timestamp}-{uuid4().hex[:8]}.md"
 
         # Write markdown file
         try:
@@ -2504,7 +2504,8 @@ async def invalidate_fact(
         try:
             timestamp = time.strftime("%Y%m%d-%H%M%S")
             filename = (
-                f"invalidation-{entity1.lower().replace(' ', '-')}-{timestamp}.md"
+                f"invalidation-{slugify(entity1)}-{timestamp}"
+                f"-{str(relationship['uuid'])[:8]}.md"
             )
 
             markdown_content = f"""# Fact Invalidation
@@ -2815,7 +2816,7 @@ async def update_fact(
 
         try:
             timestamp_str = time.strftime("%Y%m%d-%H%M%S")
-            filename = f"update-{entity1.lower().replace(' ', '-')}-{timestamp_str}.md"
+            filename = f"update-{slugify(entity1)}-{timestamp_str}-{new_uuid[:8]}.md"
 
             markdown_content = f"""# Fact Update (Supersession)
 

@@ -27,7 +27,7 @@ from src.config import (
 from src.models.procedure_models import Procedure, ProcedureMatch
 from src.services.entity_factory import entity_factory
 from src.services.event_log_service import event_log_service
-from src.services.file_service import file_service
+from src.services.file_service import file_service, slugify
 from src.services.neo4j_service import neo4j_service
 from src.services.vector_service import get_vector_service
 
@@ -275,10 +275,11 @@ class ProcedureService:
         async def write_markdown():
             try:
                 timestamp = time.strftime("%Y%m%d-%H%M%S")
-                safe_symptom = (
-                    procedure.symptom[:40].lower().replace(" ", "-").replace("/", "-")
+                safe_symptom = slugify(procedure.symptom, max_length=40)
+                filename = (
+                    f"procedure-{safe_symptom}-{timestamp}"
+                    f"-{str(procedure.procedure_uuid)[:8]}"
                 )
-                filename = f"procedure-{safe_symptom}-{timestamp}"
 
                 steps_md = "\n".join(
                     f"  {i + 1}. {step}"
