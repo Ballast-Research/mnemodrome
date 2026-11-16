@@ -393,8 +393,8 @@ class TestUpdateFactToolContract:
             # Verify partial success response
             assert result["status"] == "success"  # Core operation succeeded
             assert result["dual_memory_status"]["neo4j"] == "success"
-            assert result["dual_memory_status"]["markdown"] == "queued"
-            assert result["queued_retries"] == 1
+            assert result["dual_memory_status"]["markdown"] == "failed"
+            assert result["queued_retries"] == 0
 
     async def test_update_fact_dual_memory_both_fail(self):
         """Test update_fact handles markdown write failure gracefully by queuing."""
@@ -450,8 +450,8 @@ class TestUpdateFactToolContract:
             # Verify Neo4j succeeded but markdown queued
             assert result["status"] == "success"
             assert result["dual_memory_status"]["neo4j"] == "success"
-            assert result["dual_memory_status"]["markdown"] == "queued"
-            assert result["queued_retries"] == 1
+            assert result["dual_memory_status"]["markdown"] == "failed"
+            assert result["queued_retries"] == 0
 
     async def test_update_fact_supersession_chain_tracking(self):
         """Test supersession chain is correctly tracked in Neo4j relationship."""

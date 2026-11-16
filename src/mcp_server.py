@@ -443,7 +443,9 @@ def _format_append_success_response(result: AppendResult) -> str:
     Returns:
         User-friendly confirmation of append
     """
-    embedding_status = "✓ Updated" if result.embedding_updated else "⚠ Pending"
+    embedding_status = (
+        "✓ Updated" if result.embedding_updated else f"⚠ {VECTOR_NOT_UPDATED_MSG}"
+    )
 
     return f"""✅ Content appended successfully
 
@@ -457,8 +459,33 @@ def _format_append_success_response(result: AppendResult) -> str:
 The learning has been updated in:
 - Markdown file (new section added)
 - Neo4j graph (metadata updated)
-- Qdrant vectors ({"regenerated" if result.embedding_updated else "queued for update"})
+- Qdrant vectors ({"regenerated" if result.embedding_updated else VECTOR_NOT_UPDATED_MSG})
 """
+
+
+# Nothing retries a failed layer write (sync_service/retry_queue are not wired
+# in; repair is a separate reconcile job), so responses must never say "retry".
+# The graph (Neo4j) write has already succeeded when these are used.
+MARKDOWN_WRITE_FAILED_MSG = (
+    "FAILED (Markdown file layer write failed; the graph (Neo4j) write "
+    "succeeded, so the fact exists but its Markdown copy is missing)"
+)
+VECTOR_NOT_UPDATED_MSG = (
+    "NOT regenerated (vector layer embedding failed; the Markdown and graph "
+    "writes succeeded, so the Qdrant copy is stale or missing)"
+)
+
+
+def _markdown_layer_status(markdown_success: bool) -> str:
+    """Honest status line for the Markdown file layer write.
+
+    Nothing retries a failed layer write (sync_service/retry_queue are not
+    wired in), so never claim a retry. The graph (Neo4j) write has already
+    succeeded when this is called: the fact exists, the file copy does not.
+    """
+    if markdown_success:
+        return "✓"
+    return MARKDOWN_WRITE_FAILED_MSG
 
 
 def _format_append_error_response(result: AppendResult) -> str:
@@ -2045,9 +2072,8 @@ async def capture_fact(
         logger.info(f"✅ Markdown documentation created: {filepath}")
         markdown_success = True
     except Exception as e:
-        logger.warning(f"Markdown write failed (will queue): {e}")
+        logger.warning(f"Markdown write failed (no retry is scheduled): {e}")
         markdown_success = False
-        # TODO: Queue for retry via sync_service
 
     # Feature 022b / D1 (FR-011): Embed fact in Qdrant using the graph uuid as point id.
     # The graph uuid was app-generated at capture boundary — no fallback uuid4() needed.
@@ -2121,7 +2147,7 @@ async def capture_fact(
 {supersede_note}
 **Storage**:
 - Neo4j: ✓ (via RelationshipFactory)
-- Markdown: {"✓" if markdown_success else "queued for retry"}
+- Markdown: {_markdown_layer_status(markdown_success)}
 
 **Performance**: {write_time:.1f}ms
 {_degraded_note}"""
@@ -2314,7 +2340,7 @@ logs and confirm a non-reasoning instruct model with an adequate LLM_MAX_TOKENS.
         response += f"""
 **Storage**:
 - Neo4j: ✓ (via GraphFactory)
-- Markdown: {"✓" if markdown_success else "queued for retry"}
+- Markdown: {_markdown_layer_status(markdown_success)}
 
 **Performance**: {extraction_time:.1f}ms
 """
@@ -2742,7 +2768,7 @@ async def update_fact(
 
         # Step 5: Dual-memory sync (markdown documentation)
         dual_memory_status = {"neo4j": "success", "markdown": "success"}
-        queued_retries = 0
+        dual_memory_warning = None
 
         try:
             timestamp_str = time.strftime("%Y%m%d-%H%M%S")
@@ -2790,9 +2816,9 @@ async def update_fact(
             logger.info(f"✅ Markdown documentation created: {filepath}")
 
         except Exception as e:
-            logger.warning(f"Markdown write failed (queued for retry): {e}")
-            dual_memory_status["markdown"] = "queued"
-            queued_retries = 1
+            logger.warning(f"Markdown write failed (no retry is scheduled): {e}")
+            dual_memory_status["markdown"] = "failed"
+            dual_memory_warning = MARKDOWN_WRITE_FAILED_MSG
 
         # Step 6: Build success response
         update_time = (time.time() - start_time) * 1000
@@ -2811,7 +2837,8 @@ async def update_fact(
             "complexity_score": complexity_score,
             "conflict_auto_resolved": conflict_resolution == "auto" and auto_resolvable,
             "dual_memory_status": dual_memory_status,
-            "queued_retries": queued_retries,
+            "queued_retries": 0,  # kept for API compat; nothing retries
+            "warning": dual_memory_warning,
             "performance_ms": round(update_time, 1),
         }
 
