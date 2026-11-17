@@ -35,14 +35,17 @@ Gate kinds: **check** (a command that must exit 0), **approval** (a named person
 | change an MCP tool, env var, route, CLI or stored data | `README.md` "MCP Tools", "Configuration" (interim) | `CHANGELOG.md` `[Unreleased]` (interim) | check: CHANGELOG entry under Added/Changed/Deprecated/Removed; approval: Carlos for any removal |
 | review a PR | `CONTRIBUTING.md` "Pull Requests" (interim) | overlay: review | one independent review per PR |
 | push to GitHub | `CONTRIBUTING.md` "Pull Requests" (interim) | overlay: push | check: push gate prints PASSED |
-| release: tag, version, changelog | `CHANGELOG.md` (interim) | `.github/workflows/release.yml` (interim: what a `v*` tag does) | precondition: tag == `pyproject.toml` version == CHANGELOG heading, CI green; approval: Carlos for the tag |
+| release: tag, version, changelog | `CHANGELOG.md` (interim) | `.github/workflows/release.yml` (interim: what a `v*` tag does) | check: release check below exits 0 on the tagged commit; precondition: CI green; approval: Carlos for the tag |
 | deploy, rollback | overlay: operations | overlay runbook | approval: Carlos says "deploy"; precondition: image digest exists for the tag |
 | live service is misbehaving | overlay: operations | overlay incident runbook | precondition: read-only until Carlos authorizes a change |
 | secret, key, auth mode | `SECURITY.md` (interim) | overlay: security | never print a value; approval: Carlos for any mode change |
 | work that also changes another repo | `CONTRIBUTING.md` (interim) | overlay: cross-repo | check: an issue exists in that repo; you entered its trailhead |
-| docs, including this map | `AGENTS.md` | edit in the same PR as the change it describes | check: `wc -l AGENTS.md` <= 80, every path here exists; approval: Carlos |
+| docs, including this map | `AGENTS.md` | edit in the same PR as the change it describes | check: `test "$(wc -l < AGENTS.md)" -le 80`; every path here exists (manual until check_map.py); approval: Carlos |
 
 Lint and tests (what CI runs): `uv run ruff check . && uv run ruff format --check . && uv run pytest tests/unit/`
+
+Release check (tag == `pyproject.toml` version == CHANGELOG heading):
+`v=$(python3 -c "import tomllib; print(tomllib.load(open('pyproject.toml','rb'))['project']['version'])") && test "$(git describe --tags --exact-match HEAD)" = "v$v" && grep -q "^## \[$v\]" CHANGELOG.md`
 
 ## 4. Areas
 
@@ -60,7 +63,7 @@ Area pages (`docs/<area>/README.md`) are not written yet. Until they are:
 ## 5. Maintainer overlay
 
 Maintainers have a private overlay. If `.private/MAP.md` exists in this checkout, read it now.
-In a worktree, look for `.private/MAP.md` in the main checkout (`git rev-parse --git-common-dir` points there).
+In a worktree, look in the main checkout: the parent directory of `git rev-parse --path-format=absolute --git-common-dir`.
 If it does not exist, you are working as an outside contributor: rows marked `overlay` need the
 overlay and are not yours to perform. Stop at those rows and ask a maintainer.
 
