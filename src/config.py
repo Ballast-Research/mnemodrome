@@ -770,7 +770,30 @@ validate_evolution_config()
 validate_actr_config()
 
 # Feature 024: Project-Aware Session Init
+# DEPRECATED (Feature 040): single shared token for the hook routes. Still
+# honoured; when MNEMODROME_AUTH_MODE is warn/enforce it is also accepted as
+# one legacy key (agent name "legacy-hook-token"). Prefer per-agent keys.
 MNEMODROME_HOOK_TOKEN = os.getenv("MNEMODROME_HOOK_TOKEN", "")
+
+# Feature 040: Per-agent API keys for the MCP HTTP server.
+# off     - no key check (default, backward compatible)
+# warn    - requests without a valid key are served, logged, and counted
+# enforce - requests without a valid key get 401 (except exempt paths)
+MNEMODROME_AUTH_MODE = os.getenv("MNEMODROME_AUTH_MODE", "off").strip().lower()
+if MNEMODROME_AUTH_MODE not in ("off", "warn", "enforce"):
+    raise ValueError(
+        "MNEMODROME_AUTH_MODE must be one of off, warn, enforce; "
+        f"got '{MNEMODROME_AUTH_MODE}'"
+    )
+# JSON file mapping agent name -> SHA-256 digest of its key. Managed with
+# `python -m src.cli.agent_keys`. Reloaded automatically when it changes.
+MNEMODROME_AGENT_KEYS_FILE = os.getenv("MNEMODROME_AGENT_KEYS_FILE", "")
+# Comma-separated paths that never require a key (Docker healthcheck).
+MNEMODROME_AUTH_EXEMPT_PATHS = tuple(
+    p.strip()
+    for p in os.getenv("MNEMODROME_AUTH_EXEMPT_PATHS", "/health").split(",")
+    if p.strip()
+)
 PROJECT_CONTEXT_ENDPOINT_ENABLED = (
     os.getenv("PROJECT_CONTEXT_ENDPOINT_ENABLED", "true").lower() == "true"
 )

@@ -25,6 +25,7 @@ from src.config import (
     MemoryType,
 )
 from src.models.procedure_models import Procedure, ProcedureMatch
+from src.services.agent_auth import current_agent
 from src.services.entity_factory import entity_factory
 from src.services.event_log_service import event_log_service
 from src.services.file_service import file_service, slugify
@@ -117,6 +118,7 @@ class ProcedureService:
             technologies: $technologies,
             pattern_uuid: $pattern_uuid,
             session_uuid: $session_uuid,
+            captured_by: $captured_by,
             created_at: datetime()
         })
         RETURN p.uuid as uuid
@@ -133,6 +135,8 @@ class ProcedureService:
             "technologies": json.dumps(procedure.technologies),
             "pattern_uuid": procedure.pattern_uuid or "",
             "session_uuid": procedure.session_uuid or "",
+            # Feature 040: provenance (None -> property not written)
+            "captured_by": current_agent(),
         }
 
         result = await neo4j_service.query(cypher, params)

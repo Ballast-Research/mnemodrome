@@ -9,6 +9,7 @@ from loguru import logger
 from neo4j import AsyncDriver, AsyncGraphDatabase
 
 from src.config import NEO4J_DATABASE, NEO4J_PASSWORD, NEO4J_URI, NEO4J_USER
+from src.services.agent_auth import current_agent
 from src.services.context_formatter import relationship_predicate
 
 
@@ -289,7 +290,8 @@ class Neo4jService:
             valid_at: datetime(),
             created_at: datetime(),
             invalid_at: NULL,
-            expired_at: NULL
+            expired_at: NULL,
+            captured_by: $captured_by
         }]->(e2)
 
         RETURN
@@ -311,6 +313,7 @@ class Neo4jService:
             "relation_type": relation_type,
             "context": context,
             "relationship_uuid": relationship_uuid,
+            "captured_by": current_agent(),
         }
 
         async with self.driver.session(database=self.database) as session:
@@ -742,7 +745,8 @@ class Neo4jService:
             created_at: datetime(),
             invalid_at: NULL,
             expired_at: NULL,
-            confidence: $confidence_default
+            confidence: $confidence_default,
+            captured_by: $captured_by
         }}]->(t)
         RETURN old.uuid AS old_uuid, new.uuid AS new_uuid
         """
@@ -759,6 +763,8 @@ class Neo4jService:
                 "ctx": context,
                 "reason": f"Superseded by fact {new_fact_uuid}",
                 "confidence_default": ACTR_CONFIDENCE_DEFAULT,
+                # Feature 040: provenance (None -> property not written)
+                "captured_by": current_agent(),
             }
             if entity2_old_uuid:
                 q_params["entity2_old_uuid"] = entity2_old_uuid

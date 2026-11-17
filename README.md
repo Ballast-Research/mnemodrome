@@ -393,6 +393,48 @@ The Admin UI also hosts the configuration editor, health dashboard, event viewer
 
 ---
 
+## Agent keys (authentication)
+
+By default the MCP server accepts any client that can reach it. To control who can read and write memory, give **each agent its own key**. Keys can be rotated or revoked one at a time, and every capture records which agent wrote it.
+
+```bash
+# 1. Point Mnemodrome at a keys file (it stores SHA-256 digests only, never keys)
+MNEMODROME_AGENT_KEYS_FILE=./data/mnemodrome/agent-keys.json
+
+# 2. Create one key per agent. The key is printed once; store it in your secret manager.
+python -m src.cli.agent_keys add claude-code
+python -m src.cli.agent_keys add codex
+python -m src.cli.agent_keys list            # names and dates, never keys
+
+# 3. Roll out: warn first (requests without a valid key are served but logged), then enforce
+MNEMODROME_AUTH_MODE=warn                    # off (default) | warn | enforce
+```
+
+Clients send the key as `Authorization: Bearer <key>`. Clients that cannot set `Authorization` may send `X-Mnemodrome-Key: <key>` instead. Claude Code example (`.mcp.json`, the key comes from your environment):
+
+```json
+{
+  "mcpServers": {
+    "mnemodrome": {
+      "type": "http",
+      "url": "http://localhost:8765/mcp",
+      "headers": { "Authorization": "Bearer ${MNEMODROME_KEY}" }
+    }
+  }
+}
+```
+
+- Covers `/mcp` and every HTTP route of the MCP server, including the hook routes. `/health` stays open for container health checks (`MNEMODROME_AUTH_EXEMPT_PATHS`).
+- `rotate <name>` issues a new key and the old one stops working; `revoke <name>` removes one agent. The server picks up file changes within a second, no restart.
+- Provenance: facts, learnings, sessions, and procedures written by an authenticated agent carry a `captured_by` property, and event-log entries record the agent as `actor` (and `metadata.agent`).
+- `/health` reports the auth mode and counters of authenticated, unauthenticated, and rejected requests (only to callers that present a valid key; anonymous callers get liveness only), so you can see when every client has its key before you switch to `enforce`.
+- `MNEMODROME_HOOK_TOKEN` (the old single shared token) still works and is **deprecated**: in `warn`/`enforce` it is accepted as one key named `legacy-hook-token`, on the hook routes only (not `/mcp`).
+- Keys protect traffic over HTTP only. Use TLS (a reverse proxy) when clients connect across a network you do not trust. The stdio transport has no keys.
+
+Full setup, Docker commands, and client examples: [INSTALLATION.md](INSTALLATION.md#agent-keys-authentication).
+
+---
+
 ---
 
 ## Documentation
