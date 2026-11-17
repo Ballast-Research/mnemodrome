@@ -4,7 +4,7 @@ Read this page first. It is the map. Find the row for your intent, read its
 "Read first" source and its procedure before your first change, and state the
 row and its gate in your first reply (or in the issue). If no row fits, stop and ask.
 
-Status: active · Owner: Carlos · Verified: 2026-11-17 · Verify-on: change to this table, CONTRIBUTING.md, CHANGELOG.md or .github/workflows/
+Status: active · Owner: the maintainers · Verified: 2026-11-17 · Verify-on: change to this table, CONTRIBUTING.md, CHANGELOG.md or .github/workflows/
 
 ## 1. What this is
 
@@ -21,7 +21,7 @@ Status: active · Owner: Carlos · Verified: 2026-11-17 · Verify-on: change to 
 4. The version lives only in `pyproject.toml` and changes only in a release commit. PRs add entries under `[Unreleased]` in `CHANGELOG.md`.
 5. A change to an MCP tool, env var, HTTP route, CLI flag or stored-data shape is an API change: CHANGELOG entry under the right heading, stated in the PR.
 6. Feature specs are kept outside this repo; never add spec files to a PR. The "Feature Development Process" and "Release Process" sections of `CONTRIBUTING.md` are out of date: do not follow them.
-7. No release tag, deploy or auth-mode change without Carlos's explicit yes.
+7. No release tag, deploy or auth-mode change without a maintainer's explicit yes.
 
 ## 3. Intent routing
 
@@ -30,17 +30,17 @@ Gate kinds: **check** (a command that must exit 0), **approval** (a named person
 
 | Intent | Read first | Procedure | Gate (stop until) |
 |---|---|---|---|
-| idea: "it should also do X" | `docs/PHILOSOPHY.md` (interim) | `CONTRIBUTING.md` "Suggesting Features" (interim) | check: issue filed; approval: Carlos before any code |
+| idea: "it should also do X" | `docs/PHILOSOPHY.md` (interim) | `CONTRIBUTING.md` "Suggesting Features" (interim) | check: issue filed; approval: a maintainer before any code |
 | bug: "I saw X misbehave" | `CONTRIBUTING.md` (interim) | `CONTRIBUTING.md` "Reporting Bugs", "Testing Strategy" (interim) | check: issue exists; lint + tests below exit 0; one PR per issue |
-| change an MCP tool, env var, route, CLI or stored data | `README.md` "MCP Tools", "Configuration" (interim) | `CHANGELOG.md` `[Unreleased]` (interim) | check: CHANGELOG entry under Added/Changed/Deprecated/Removed; approval: Carlos for any removal |
+| change an MCP tool, env var, route, CLI or stored data | `README.md` "MCP Tools", "Configuration" (interim) | `CHANGELOG.md` `[Unreleased]` (interim) | check: CHANGELOG entry under Added/Changed/Deprecated/Removed; approval: a maintainer for any removal |
 | review a PR | `CONTRIBUTING.md` "Pull Requests" (interim) | overlay: review | one independent review per PR |
 | push to GitHub | `CONTRIBUTING.md` "Pull Requests" (interim) | overlay: push | check: push gate prints PASSED |
-| release: tag, version, changelog | `CHANGELOG.md` (interim) | `.github/workflows/release.yml` (interim: what a `v*` tag does) | check: release check below exits 0 on the tagged commit; precondition: CI green; approval: Carlos for the tag |
-| deploy, rollback | overlay: operations | overlay runbook | approval: Carlos says "deploy"; precondition: image digest exists for the tag |
-| live service is misbehaving | overlay: operations | overlay incident runbook | precondition: read-only until Carlos authorizes a change |
-| secret, key, auth mode | `SECURITY.md` (interim) | overlay: security | never print a value; approval: Carlos for any mode change |
+| release: tag, version, changelog | `CHANGELOG.md` (interim) | `.github/workflows/release.yml` (interim: what a `v*` tag does) | check: release check below exits 0 on the tagged commit; precondition: CI green; approval: a maintainer for the tag |
+| deploy, rollback | overlay: operations | overlay runbook | approval: a maintainer says "deploy"; precondition: image digest exists for the tag |
+| live service is misbehaving | overlay: operations | overlay incident runbook | precondition: read-only until a maintainer authorizes a change |
+| secret, key, auth mode | `SECURITY.md` (interim) | overlay: security | never print a value; approval: a maintainer for any mode change |
 | work that also changes another repo | `CONTRIBUTING.md` (interim) | overlay: cross-repo | check: an issue exists in that repo; you entered its trailhead |
-| docs, including this map | `AGENTS.md` | edit in the same PR as the change it describes | check: `test "$(wc -l < AGENTS.md)" -le 80`; every path here exists (manual until check_map.py); approval: Carlos |
+| docs, including this map | `AGENTS.md` | edit in the same PR as the change it describes | check: `test "$(wc -l < AGENTS.md)" -le 80`; every path here exists (manual until check_map.py); approval: a maintainer |
 
 Lint and tests (what CI runs): `uv run ruff check . && uv run ruff format --check . && uv run pytest tests/unit/`
 
@@ -70,4 +70,4 @@ overlay and are not yours to perform. Stop at those rows and ask a maintainer.
 ## 6. Refocus rule
 
 Every piece of work names the goal it serves: an issue.
-A new finding does not join the running work: decide it now with Carlos, or file it as an issue.
+A new finding does not join the running work: decide it now with a maintainer, or file it as an issue.
