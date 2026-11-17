@@ -101,5 +101,9 @@ docs/archive/
 .devtime/
 
 # Personal harness tooling (Claude Code / SpecKit)
+# CLAUDE.md is tracked: it is a stub that imports AGENTS.md.
 .claude/
-CLAUDE.md
+
+# Maintainer overlay: a local symlink to private docs, never committed (see AGENTS.md section 5)
+.private
+.private/
