@@ -29,6 +29,10 @@ The ADRs cited below are `proposed` until a maintainer accepts them.
 7. Feature specs are maintained by the core team outside this repo.
    Contributors open an issue; no spec files are needed in a PR.
    (2026-11-18, [ADR-003](../decisions/ADR-003-specs-maintained-privately.md))
+8. A default may change to a safer value in a minor release only under the
+   security-hardening exception, with an `Upgrade note:` in the CHANGELOG and
+   the release notes. (2026-11-18, [ADR-002](../decisions/ADR-002-semver-and-api-surface.md),
+   [policy](versioning-policy.md#bump-rules))
 
 ## Procedures
 

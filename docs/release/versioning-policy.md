@@ -46,6 +46,11 @@ test helpers, and anything marked `experimental`.
 - **MAJOR** (`1.x` → `2.0.0`): removal or incompatible change of a `stable` item;
   a changed default that alters behavior on upgrade (example: auth mode default
   `off` → `enforce`); a stored-data change that needs a manual migration.
+- **Security-hardening default (exception, 2026-11-18).** A default may change
+  to a safer value in a MINOR release when (a) the change closes an exposure,
+  (b) the CHANGELOG entry carries an `Upgrade note:` with the exact setting that
+  restores the old behavior, and (c) the release notes repeat that note. Any
+  other changed default that alters behavior on upgrade stays MAJOR.
 - **Removing a stable item takes two steps.** Deprecate it in a minor: it still
   works, says so in its response or log, and is listed under `### Deprecated`.
   Remove it in the next major.

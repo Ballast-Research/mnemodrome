@@ -69,6 +69,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 - `ADMIN_WEB_ENABLED` now defaults to `false` in code as well as in Docker Compose.
   Docker Compose publishes the Admin UI port on the host loopback only.
+  Upgrade note: set ADMIN_WEB_ENABLED=true (and ADMIN_PASSWORD) to keep the Admin UI on.
 - Documentation: README and INSTALLATION.md describe the umbrella storage path,
   how to enable the Admin UI, and a reverse-proxy example.
 - The MCP HTTP server is now started through `run_mcp_transport()` so the agent-key

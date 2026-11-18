@@ -64,6 +64,7 @@ Examples use `1.1.0`; replace with the version you are cutting.
 1. The workflow run succeeded: `gh run list --workflow Release --limit 1`.
 2. The release exists: `gh release view v1.1.0`. Replace the generated notes
    with the `CHANGELOG.md` section if they differ: `gh release edit v1.1.0 --notes-file <file>`.
+   Copy every `Upgrade note:` from that CHANGELOG section into the release notes.
 3. The image exists and its digest is recorded:
    `docker buildx imagetools inspect ghcr.io/ballast-research/mnemodrome:1.1.0`.
    Maintainers deploy tagged images by digest; see the maintainer overlay.

@@ -24,6 +24,9 @@ recorded in several files drifts.
 3. PATCH for fixes and internal changes; MINOR for additions, deprecations and
    changes to experimental items; MAJOR for incompatible changes to stable items,
    behavior-changing defaults, and data changes that need a manual migration.
+   Exception: a default may change to a safer value in a minor when it closes
+   an exposure and the CHANGELOG and release notes carry an `Upgrade note:` with
+   the setting that restores the old behavior.
    Removing a stable item takes two steps: deprecate in a minor, remove in the
    next major.
 4. Steps are small: each release is the next patch or the next minor, with no
@@ -41,6 +44,9 @@ recorded in several files drifts.
   CHANGELOG under the matching heading.
 - Items that never appeared in a tagged release carry no promise; removing them
   is noted in the CHANGELOG but is not a major change. 1.1.0 is a minor release.
+- The security-hardening exception lets an exposure be closed without waiting
+  for a batched major; the `Upgrade note:` keeps the change visible and
+  reversible with one setting. Any other behavior-changing default stays major.
 - PEP 440 form keeps Python packaging, git tags and image tags identical,
   at the cost of differing from the SemVer `-rc.N` spelling.
 - Tooling to enforce this (release check script, API surface snapshot, checks in
