@@ -24,9 +24,8 @@ Examples use `1.1.0`; replace with the version you are cutting.
 1. Start from fresh `main` on a release branch:
    `git fetch origin && git switch -c release/1.1.0 origin/main`
 2. Set `version = "1.1.0"` in `pyproject.toml`, then run `uv lock` so `uv.lock`
-   records the same version. Update the hand-written version copies listed in the
-   [versioning policy](versioning-policy.md#one-source-checked): the badge in
-   `README.md` and the two version strings in `src/admin_ui.py`.
+   records the same version. No other file holds the version
+   ([versioning policy](versioning-policy.md#one-source-checked)).
 3. In `CHANGELOG.md`, rename the `## [Unreleased]` heading to
    `## [1.1.0] - YYYY-MM-DD` (today's date) and add a new empty `## [Unreleased]`
    above it. The file has no compare links today; if it gains them, update them here.
@@ -81,10 +80,9 @@ Use it to rehearse a release before the final tag. Only `rcN` suffixes are allow
 4. If nothing changed: cut `1.1.0` with a release commit that only sets the
    version to `1.1.0`, re-runs `uv lock`, and renames the CHANGELOG heading to
    `## [1.1.0] - YYYY-MM-DD`. Before tagging, confirm the code is the rc's:
-   `git diff --stat v1.1.0rc1 origin/main` lists only the version-bearing files
-   (`pyproject.toml`, `uv.lock`, `CHANGELOG.md`, `README.md`, `src/admin_ui.py`),
-   and `git diff v1.1.0rc1 origin/main` shows only version strings and the
-   CHANGELOG heading changing.
+   `git diff --stat v1.1.0rc1 origin/main` lists only `pyproject.toml`,
+   `uv.lock` and `CHANGELOG.md`, and `git diff v1.1.0rc1 origin/main` shows
+   only the version strings and the CHANGELOG heading changing.
 
 ## Rollback
 

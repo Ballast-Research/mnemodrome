@@ -15,7 +15,8 @@ The ADRs cited below are `proposed` until a maintainer accepts them.
    (2026-11-18, [ADR-002](../decisions/ADR-002-semver-and-api-surface.md),
    [versioning policy](versioning-policy.md))
 3. The version lives only in `pyproject.toml` and changes only in the release
-   commit. Pull requests add entries under `[Unreleased]` in `CHANGELOG.md`.
+   commit, which touches only `pyproject.toml`, `uv.lock` and the `CHANGELOG.md`
+   heading. Pull requests add entries under `[Unreleased]` in `CHANGELOG.md`.
    (2026-11-18, [ADR-002](../decisions/ADR-002-semver-and-api-surface.md))
 4. One step per release: the next patch or the next minor. No skipped numbers.
    Majors are rare and batched. (2026-11-18,

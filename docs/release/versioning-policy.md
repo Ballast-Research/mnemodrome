@@ -79,11 +79,13 @@ none" otherwise) and adds a CHANGELOG entry under `### Added`, `### Changed`,
 
 ## One source, checked
 
-- The version lives in `pyproject.toml` only. The MCP server reads it from
-  package metadata at runtime. `uv.lock` records it too; `uv lock` regenerates
-  that entry in the release commit. Known hand-written copies (the README
-  version badge and the Admin UI version string) are to be removed; until then,
-  update them in the release commit.
+- The version lives in `pyproject.toml` only. The MCP server, the Admin UI and
+  its health route read it from the installed package metadata at runtime
+  (`src/config.py`, `MCP_VERSION`); the README badge shows the latest GitHub
+  release. `uv lock` regenerates the version entry in `uv.lock`.
+- A release commit touches only `pyproject.toml`, `uv.lock` and the
+  `CHANGELOG.md` heading. `tests/unit/test_version.py` fails if the installed
+  version and `pyproject.toml` disagree.
 - Today: the release check in [Cut a release](cut-a-release.md) verifies that
   the tag equals `v<pyproject version>` and that `CHANGELOG.md` has a heading
   for that version. A maintainer runs it by hand.

@@ -72,6 +72,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Upgrade note: set ADMIN_WEB_ENABLED=true (and ADMIN_PASSWORD) to keep the Admin UI on.
 - Documentation: README and INSTALLATION.md describe the umbrella storage path,
   how to enable the Admin UI, and a reverse-proxy example.
+- The Admin UI and its `/admin/health-check` route report the installed package
+  version (from `pyproject.toml`) instead of a fixed string. The README version
+  badge shows the latest GitHub release.
 - The MCP HTTP server is now started through `run_mcp_transport()` so the agent-key
   middleware wraps the FastMCP app; the stdio transport is unchanged.
 - Documentation: README and INSTALLATION.md describe agent keys, rollout, and
