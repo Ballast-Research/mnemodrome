@@ -1,4 +1,4 @@
-Status: draft · Owner: the maintainers · Verified: 2026-11-18 · Verify-on: change to how features are proposed or specified
+Status: proposed · Owner: the maintainers · Verified: 2026-11-18 · Verify-on: change to how features are proposed or specified
 
 # ADR-003: Feature specs are maintained outside this repo
 

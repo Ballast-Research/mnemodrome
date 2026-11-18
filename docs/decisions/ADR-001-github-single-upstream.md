@@ -1,4 +1,4 @@
-Status: draft · Owner: the maintainers · Verified: 2026-11-18 · Verify-on: change of the canonical remote, the trunk branch, or where release tags are cut
+Status: proposed · Owner: the maintainers · Verified: 2026-11-18 · Verify-on: change of the canonical remote, the trunk branch, or where release tags are cut
 
 # ADR-001: GitHub is the single upstream
 

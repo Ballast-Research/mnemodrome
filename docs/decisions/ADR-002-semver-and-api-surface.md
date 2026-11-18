@@ -1,4 +1,4 @@
-Status: draft · Owner: the maintainers · Verified: 2026-11-18 · Verify-on: change to docs/release/versioning-policy.md or to the version scheme
+Status: proposed · Owner: the maintainers · Verified: 2026-11-18 · Verify-on: change to docs/release/versioning-policy.md or to the version scheme
 
 # ADR-002: Semantic Versioning over a declared API surface
 
