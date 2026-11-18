@@ -24,7 +24,8 @@ Examples use `1.1.0`; replace with the version you are cutting.
 1. Start from fresh `main` on a release branch:
    `git fetch origin && git switch -c release/1.1.0 origin/main`
 2. Set `version = "1.1.0"` in `pyproject.toml`, then run `uv lock` so `uv.lock`
-   records the same version. No other file holds the version
+   records the same version, and `uv sync` so the local install reports it
+   (`tests/unit/test_version.py` fails on a stale install). No other file holds the version
    ([versioning policy](versioning-policy.md#one-source-checked)).
 3. In `CHANGELOG.md`, rename the `## [Unreleased]` heading to
    `## [1.1.0] - YYYY-MM-DD` (today's date) and add a new empty `## [Unreleased]`
