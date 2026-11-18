@@ -31,7 +31,7 @@ Be respectful, professional, and constructive in all interactions.
 
 1. **Fork the repository**
 2. **Create a feature branch**: `git checkout -b feature/amazing-feature`
-3. **Follow the constitution**: Read `.specify/constitution.md` for architectural principles
+3. **Follow the design principles**: Read `docs/PHILOSOPHY.md`
 4. **Write tests**: All new features require tests
 5. **Update documentation**: Keep README, INSTALLATION.md, and inline docs current
 6. **Commit with good messages**: Follow conventional commits format
@@ -80,11 +80,6 @@ mnemodrome/
 │   ├── unit/                  # Unit tests
 │   ├── integration/           # Integration tests
 │   └── contract/              # Contract tests
-├── specs/                     # Feature specifications
-│   └── XXX-feature-name/
-│       ├── spec.md            # Feature specification
-│       ├── plan.md            # Implementation plan
-│       └── tasks.md           # Task breakdown
 ├── scripts/                   # Utility scripts
 └── docs/assets/               # Demo media
 ```

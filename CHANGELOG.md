@@ -82,8 +82,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Move hook clients to per-agent keys.
 
 ### Removed
-- The librarian admin tools are not present. They were never part of a tagged
-  release, so no published interface changes.
+- Librarian admin tools. They were added and removed between
+  releases and were never part of a tagged release, so no published interface
+  changes.
 
 ## [1.0.0] - 2026-06-15
 

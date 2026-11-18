@@ -11,18 +11,22 @@ Examples use `1.1.0`; replace with the version you are cutting.
 1. CI is green on the tip of `main`: `gh run list --branch main --workflow CI --limit 1`.
 2. `[Unreleased]` in `CHANGELOG.md` has been reviewed: each entry sits under the
    right heading, and the surface changes it lists match the bump you plan.
-3. The version is the next patch or next minor after the last tag
-   (`git describe --tags --abbrev=0`). No skipped numbers.
-4. For a release candidate only: `.github/workflows/release.yml` skips the `latest` image tag for
-   `rc` tags. Not true yet (see step 10); do not tag an rc until it is.
+3. The version follows the last final (non-rc) tag,
+   `git tag --list 'v*' --sort=-v:refname | grep -v rc | head -1`, as its next
+   patch or next minor, or as an rc of that version. No skipped numbers.
+   After `vX.Y.ZrcN` the only allowed next tags are `vX.Y.Zrc(N+1)` or `vX.Y.Z`.
+4. For a release candidate only: `.github/workflows/release.yml` skips the
+   `latest` image tag for `rc` tags. Not true yet (see step 10); do not tag an
+   rc until it is.
 
 ## Steps
 
 1. Start from fresh `main` on a release branch:
    `git fetch origin && git switch -c release/1.1.0 origin/main`
 2. Set `version = "1.1.0"` in `pyproject.toml`, then run `uv lock` so `uv.lock`
-   records the same version. Update any hand-written version copy listed in the
-   [versioning policy](versioning-policy.md#one-source-checked).
+   records the same version. Update the hand-written version copies listed in the
+   [versioning policy](versioning-policy.md#one-source-checked): the badge in
+   `README.md` and the two version strings in `src/admin_ui.py`.
 3. In `CHANGELOG.md`, rename the `## [Unreleased]` heading to
    `## [1.1.0] - YYYY-MM-DD` (today's date) and add a new empty `## [Unreleased]`
    above it. The file has no compare links today; if it gains them, update them here.
@@ -36,7 +40,8 @@ Examples use `1.1.0`; replace with the version you are cutting.
    `git fetch origin && git rev-parse origin/main`. Stop until the maintainer says yes.
 8. Tag that commit locally:
    `git switch --detach origin/main && git tag -a v1.1.0 -m "Mnemodrome 1.1.0"`
-9. Run the release check. It must exit 0. If it fails, `git tag -d v1.1.0` and stop.
+9. Run the release check. It must exit 0. If it fails, `git tag -d v1.1.0`,
+   do not push, and see "Release check fails after merge" under Rollback.
 
    ```bash
    v=$(python3 -c "import tomllib; print(tomllib.load(open('pyproject.toml','rb'))['project']['version'])") && test "$(git describe --tags --exact-match HEAD)" = "v$v" && grep -q "^## \[$v\]" CHANGELOG.md
@@ -75,12 +80,19 @@ Use it to rehearse a release before the final tag. Only `rcN` suffixes are allow
 4. If nothing changed: cut `1.1.0` with a release commit that only sets the
    version to `1.1.0`, re-runs `uv lock`, and renames the CHANGELOG heading to
    `## [1.1.0] - YYYY-MM-DD`. Before tagging, confirm the code is the rc's:
-   `git diff --stat v1.1.0rc1 origin/main` lists only `pyproject.toml`,
-   `uv.lock` and `CHANGELOG.md`.
+   `git diff --stat v1.1.0rc1 origin/main` lists only the version-bearing files
+   (`pyproject.toml`, `uv.lock`, `CHANGELOG.md`, `README.md`, `src/admin_ui.py`),
+   and `git diff v1.1.0rc1 origin/main` shows only version strings and the
+   CHANGELOG heading changing.
 
 ## Rollback
 
 - Before the tag is pushed: `git tag -d v1.1.0`, fix by PR, start again.
+- Release check fails after merge (the release commit is on `main` but the
+  version, tag or CHANGELOG heading disagree): delete the local tag
+  (`git tag -d v1.1.0`); if it was pushed, a maintainer deletes the remote tag
+  (`git push origin :refs/tags/v1.1.0`) before any image is published. Fix the
+  mismatch by PR, then restart from step 1.
 - Tag pushed, workflow failed before any image or release was published:
   a maintainer may delete the tag (`git push origin :refs/tags/v1.1.0`), and the
   tag is cut again after the fix.

@@ -51,7 +51,8 @@ test helpers, and anything marked `experimental`.
   Remove it in the next major.
 - Items that were never in a tagged release are not part of any promise. Their
   removal is noted under `### Removed` but does not force a major.
-  Example: 1.1.0 is a minor release.
+  Example: the librarian admin tools were added and removed between releases,
+  so their removal does not make 1.1.0 a major release.
 
 ## Keeping steps small
 
@@ -88,5 +89,5 @@ none" otherwise) and adds a CHANGELOG entry under `### Added`, `### Changed`,
     committed snapshot does not declare.
   - The same checks in `.github/workflows/release.yml`, so a bad tag fails
     before an image is pushed.
-  - `.github/workflows/release.yml` skips the `latest` image tag and marks the GitHub release
-    as a pre-release for tags that contain `rc`.
+  - `.github/workflows/release.yml` skips the `latest` image tag and marks
+    the GitHub release as a pre-release for tags that contain `rc`.

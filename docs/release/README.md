@@ -4,6 +4,7 @@ Status: active · Owner: the maintainers · Verified: 2026-11-18 · Verify-on: c
 
 How Mnemodrome is versioned, where changes land, and how a release is cut.
 Level-2 detail lives in the pages linked below; this page does not repeat it.
+The ADRs cited below are `proposed` until a maintainer accepts them.
 
 ## Rules
 
@@ -23,7 +24,8 @@ Level-2 detail lives in the pages linked below; this page does not repeat it.
    tag (`vX.Y.ZrcN`) and the image tag. Only `rc` is allowed. A pre-release
    never moves the `latest` image tag. (2026-11-18,
    [ADR-002](../decisions/ADR-002-semver-and-api-surface.md))
-6. A maintainer approves every tag. No tag without that approval. (2026-11-18)
+6. A maintainer approves every tag. No tag without that approval.
+   (2026-11-18, [ADR-002](../decisions/ADR-002-semver-and-api-surface.md))
 7. Feature specs are maintained by the core team outside this repo.
    Contributors open an issue; no spec files are needed in a PR.
    (2026-11-18, [ADR-003](../decisions/ADR-003-specs-maintained-privately.md))
