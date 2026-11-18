@@ -154,7 +154,7 @@ cat <<'BANNER'
 /_/  /_/_/ /_/\___/_/ /_/ /_/\____/\__,_/_/   \____/_/ /_/ /_/\___/
 BANNER
 printf "${NC}"
-printf "   ${BOLD}multi-layer memory for AI agents${NC}  ·  v%s\n" "${BANNER_VER:-1.0.0}"
+printf "   ${BOLD}multi-layer memory for AI agents${NC}  ·  v%s\n" "${BANNER_VER:-0.0.0+unknown}"
 echo "────────────────────────────────────────────────────────"
 echo ""
 

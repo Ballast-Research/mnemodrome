@@ -5,6 +5,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from fastapi.testclient import TestClient
 
+from src import config
 from src.admin_ui import app
 
 
@@ -141,7 +142,7 @@ class TestAdminUI:
         data = response.json()
         assert data["status"] == "healthy"
         assert data["service"] == "Mnemodrome Admin UI"
-        assert data["version"] == "1.0.0"
+        assert data["version"] == config.MCP_VERSION
 
     # ============================================================================
     # Authentication Tests
