@@ -9,12 +9,13 @@ Brief description of the changes.
 
 ## Checklist
 
-- [ ] Tests pass locally (`uv run pytest tests/unit/ -v`)
-- [ ] Linting passes (`uv run ruff check .`)
+- [ ] Lint and unit tests pass (`uv run ruff check . && uv run ruff format --check . && uv run pytest tests/unit/`)
+- [ ] CHANGELOG.md entry added under `[Unreleased]`
+- [ ] API-surface change stated below, per `docs/release/versioning-policy.md`, or "none"
 - [ ] Documentation updated (if applicable)
-- [ ] CHANGELOG.md updated
 - [ ] No secrets or personal paths committed
-- [ ] New MCP tools documented in tools-reference.md (if applicable)
+
+API surface change: none
 
 ## Testing
 

@@ -145,26 +145,16 @@ refactor(services): extract entity factory pattern
 
 ## Feature Development Process
 
-Mnemodrome uses spec-driven development:
+Feature specs are maintained by the core team outside this repo. Contributors
+open an issue; no spec files are needed in a PR. See
+[ADR-003](docs/decisions/ADR-003-specs-maintained-privately.md).
 
-1. **Specification** (`specs/XXX-feature-name/spec.md`)
-   - Problem statement
-   - Success criteria
-   - Architecture design
-   
-2. **Implementation Plan** (`specs/XXX-feature-name/plan.md`)
-   - Phases and tasks
-   - Dependencies
-   - Success metrics
-   
-3. **Task Breakdown** (`specs/XXX-feature-name/tasks.md`)
-   - Concrete implementation steps
-   - Acceptance criteria
-   
-4. **Implementation**
-   - Follow task breakdown
-   - Write tests first (TDD)
-   - Update documentation
+1. Open an issue describing the use case (see "Suggesting Features").
+2. Wait for a maintainer to agree on the approach before writing code.
+3. Implement with tests, update user documentation, and add a `CHANGELOG.md`
+   entry under `[Unreleased]`.
+4. State in the PR whether it changes the public API surface
+   ([versioning policy](docs/release/versioning-policy.md)).
 
 ## Documentation
 
@@ -230,11 +220,13 @@ LLM_PROVIDER=ollama uv run pytest
 
 ## Release Process
 
-1. Update version in `src/config.py`
-2. Update `CHANGELOG.md`
-3. Tag release: `git tag v0.9.0-beta`
-4. Push tag: `git push origin v0.9.0-beta`
-5. Create GitHub release with changelog
+Releases are cut by maintainers. Contributors never change the version: it lives
+only in `pyproject.toml` and changes only in the release commit. Add your entry
+under `[Unreleased]` in `CHANGELOG.md` instead.
+
+- Policy: [docs/release/versioning-policy.md](docs/release/versioning-policy.md)
+- Procedure: [docs/release/cut-a-release.md](docs/release/cut-a-release.md)
+- Overview: [docs/release/README.md](docs/release/README.md)
 
 ## Need Help?
 

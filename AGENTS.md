@@ -4,7 +4,7 @@ Read this page first. It is the map. Find the row for your intent, read its
 "Read first" source and its procedure before your first change, and state the
 row and its gate in your first reply (or in the issue). If no row fits, stop and ask.
 
-Status: active · Owner: the maintainers · Verified: 2026-11-17 · Verify-on: change to this table, CONTRIBUTING.md, CHANGELOG.md or .github/workflows/
+Status: active · Owner: the maintainers · Verified: 2026-11-18 · Verify-on: change to this table, CONTRIBUTING.md, CHANGELOG.md or .github/workflows/
 
 ## 1. What this is
 
@@ -20,7 +20,7 @@ Status: active · Owner: the maintainers · Verified: 2026-11-17 · Verify-on: c
 3. One issue, one branch from fresh `origin/main`, one PR. No force push to `main`.
 4. The version lives only in `pyproject.toml` and changes only in a release commit. PRs add entries under `[Unreleased]` in `CHANGELOG.md`.
 5. A change to an MCP tool, env var, HTTP route, CLI flag or stored-data shape is an API change: CHANGELOG entry under the right heading, stated in the PR.
-6. Feature specs are kept outside this repo; never add spec files to a PR. The "Feature Development Process" and "Release Process" sections of `CONTRIBUTING.md` are out of date: do not follow them.
+6. Feature specs are maintained outside this repo; never add spec files to a PR (`docs/decisions/ADR-003-specs-maintained-privately.md`).
 7. No release tag, deploy or auth-mode change without a maintainer's explicit yes.
 
 ## 3. Intent routing
@@ -32,10 +32,10 @@ Gate kinds: **check** (a command that must exit 0), **approval** (a named person
 |---|---|---|---|
 | idea: "it should also do X" | `docs/PHILOSOPHY.md` (interim) | `CONTRIBUTING.md` "Suggesting Features" (interim) | check: issue filed; approval: a maintainer before any code |
 | bug: "I saw X misbehave" | `CONTRIBUTING.md` (interim) | `CONTRIBUTING.md` "Reporting Bugs", "Testing Strategy" (interim) | check: issue exists; lint + tests below exit 0; one PR per issue |
-| change an MCP tool, env var, route, CLI or stored data | `README.md` "MCP Tools", "Configuration" (interim) | `CHANGELOG.md` `[Unreleased]` (interim) | check: CHANGELOG entry under Added/Changed/Deprecated/Removed; approval: a maintainer for any removal |
+| change an MCP tool, env var, route, CLI or stored data | `README.md` "MCP Tools", "Configuration" (interim) | `docs/release/versioning-policy.md` | check: CHANGELOG entry under Added/Changed/Deprecated/Removed; approval: a maintainer for any removal |
 | review a PR | `CONTRIBUTING.md` "Pull Requests" (interim) | overlay: review | one independent review per PR |
 | push to GitHub | `CONTRIBUTING.md` "Pull Requests" (interim) | overlay: push | check: push gate prints PASSED |
-| release: tag, version, changelog | `CHANGELOG.md` (interim) | `.github/workflows/release.yml` (interim: what a `v*` tag does) | check: release check below exits 0 on the tagged commit; precondition: CI green; approval: a maintainer for the tag |
+| release: tag, version, changelog | `docs/release/README.md` | `docs/release/cut-a-release.md` | check: release check below exits 0 on the tagged commit; precondition: CI green; approval: a maintainer for the tag |
 | deploy, rollback | overlay: operations | overlay runbook | approval: a maintainer says "deploy"; precondition: image digest exists for the tag |
 | live service is misbehaving | overlay: operations | overlay incident runbook | precondition: read-only until a maintainer authorizes a change |
 | secret, key, auth mode | `SECURITY.md` (interim) | overlay: security | never print a value; approval: a maintainer for any mode change |
@@ -49,14 +49,14 @@ Release check (tag == `pyproject.toml` version == CHANGELOG heading):
 
 ## 4. Areas
 
-Area pages (`docs/<area>/README.md`) are not written yet. Until they are:
+Area pages (`docs/<area>/README.md`): only `release` is written. For the other areas the sources below are interim.
 
-| Area | Current sources (interim) |
+| Area | Current sources |
 |---|---|
 | product | `docs/PHILOSOPHY.md`, `README.md` |
 | architecture | `README.md` "Architecture", "MCP Tools"; `src/` |
 | development | `CONTRIBUTING.md` (setup, style, tests), `.github/workflows/ci.yml`, `.github/PULL_REQUEST_TEMPLATE.md` |
-| release | `CHANGELOG.md`, `pyproject.toml`, `.github/workflows/release.yml` |
+| release | `docs/release/README.md` (area page written); decisions in `docs/decisions/` |
 | operations | Self-hosters: `INSTALLATION.md`. Maintainers: overlay. |
 | security | `SECURITY.md`, `README.md` "Agent keys (authentication)" |
 

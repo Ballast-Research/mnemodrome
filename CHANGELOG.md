@@ -41,6 +41,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `ADMIN_WEB_HOST` (default `127.0.0.1`) controls the Admin UI bind address.
 - `MEMORY_BROWSER_FILE_INDEX_TTL` (default 300 s).
 - Explicit dependency pin `markdown-it-py==4.0.0` (server-side Markdown rendering).
+- Documentation: release docs in `docs/release/` (overview, versioning policy with
+  the public API surface and stability marks, cut-a-release procedure) and
+  decision records in `docs/decisions/` (ADR-001 to ADR-003, proposed).
 
 ### Fixed
 - Admin UI endpoints that touch Neo4j no longer fail with "attached to a
@@ -77,6 +80,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `MNEMODROME_HOOK_TOKEN`. It keeps working on the hook routes; in `warn` and
   `enforce` modes it is accepted on the hook routes only, as the key `legacy-hook-token`.
   Move hook clients to per-agent keys.
+
+### Removed
+- The librarian admin tools are not present. They were never part of a tagged
+  release, so no published interface changes.
 
 ## [1.0.0] - 2026-06-15
 
