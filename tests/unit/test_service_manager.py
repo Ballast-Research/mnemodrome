@@ -11,6 +11,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from src import config
 from src.services.deployment_detector import DeploymentDetector, DeploymentType
 from src.services.service_manager import (
     LogSeverity,
@@ -115,7 +116,7 @@ class TestServiceManagerStatusSystemd:
                 assert status["cpu_percent"] == 5.5
                 assert status["uptime_seconds"] is not None
                 assert status["uptime_seconds"] > 3500  # ~3600 - 60 second drift
-                assert status["version"] == "1.0.0"
+                assert status["version"] == config.MCP_VERSION
                 assert status["deployment_type"] == "systemd"
 
     @pytest.mark.asyncio
@@ -560,7 +561,7 @@ class TestServiceManagerIntegration:
                 assert status["memory_mb"] == 512.0
                 assert status["cpu_percent"] == 2.3
                 assert status["uptime_seconds"] > 86300
-                assert status["version"] == "1.0.0"
+                assert status["version"] == config.MCP_VERSION
                 assert status["deployment_type"] == "systemd"
                 assert "last_updated" in status
                 assert status["service_name"] is not None
@@ -609,7 +610,7 @@ class TestServiceManagerConfiguration:
         manager = ServiceManager()
 
         assert manager.service_name is not None
-        assert manager.version == "1.0.0"
+        assert manager.version == config.MCP_VERSION
         assert manager.control_timeout > 0
         assert manager.log_timeout > 0
         assert manager.deployment_type in [

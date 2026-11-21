@@ -41,6 +41,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `ADMIN_WEB_HOST` (default `127.0.0.1`) controls the Admin UI bind address.
 - `MEMORY_BROWSER_FILE_INDEX_TTL` (default 300 s).
 - Explicit dependency pin `markdown-it-py==4.0.0` (server-side Markdown rendering).
+- Documentation: release docs in `docs/release/` (overview, versioning policy with
+  the public API surface and stability marks, cut-a-release procedure) and
+  decision records in `docs/decisions/` (ADR-001 to ADR-003, proposed).
 
 ### Fixed
 - Admin UI endpoints that touch Neo4j no longer fail with "attached to a
@@ -66,8 +69,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 - `ADMIN_WEB_ENABLED` now defaults to `false` in code as well as in Docker Compose.
   Docker Compose publishes the Admin UI port on the host loopback only.
+  Upgrade note: set ADMIN_WEB_ENABLED=true (and ADMIN_PASSWORD) to keep the Admin UI on.
 - Documentation: README and INSTALLATION.md describe the umbrella storage path,
   how to enable the Admin UI, and a reverse-proxy example.
+- The Admin UI and its `/admin/health-check` route report the installed package
+  version (from `pyproject.toml`) instead of a fixed string. The README version
+  badge shows the latest GitHub release.
 - The MCP HTTP server is now started through `run_mcp_transport()` so the agent-key
   middleware wraps the FastMCP app; the stdio transport is unchanged.
 - Documentation: README and INSTALLATION.md describe agent keys, rollout, and
@@ -77,6 +84,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `MNEMODROME_HOOK_TOKEN`. It keeps working on the hook routes; in `warn` and
   `enforce` modes it is accepted on the hook routes only, as the key `legacy-hook-token`.
   Move hook clients to per-agent keys.
+
+### Removed
+- Librarian admin tools. They were added and removed between
+  releases and were never part of a tagged release, so no published interface
+  changes.
 
 ## [1.0.0] - 2026-06-15
 

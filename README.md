@@ -2,7 +2,7 @@
 
 **Cognitive memory for AI agents.** Six layers. Epistemic governance. Portable via MCP.
 
-[![Version](https://img.shields.io/badge/version-1.0.0-brightgreen.svg)](https://github.com/Ballast-Research/mnemodrome/releases)
+[![Version](https://img.shields.io/github/v/release/Ballast-Research/mnemodrome?label=version)](https://github.com/Ballast-Research/mnemodrome/releases)
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
 [![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
 [![MCP Compatible](https://img.shields.io/badge/MCP-Compatible-green.svg)](https://modelcontextprotocol.io)

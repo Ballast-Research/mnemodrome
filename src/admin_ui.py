@@ -26,7 +26,7 @@ from src.services.admin_service import initialize_config_manager
 app = FastAPI(
     title="Mnemodrome Admin UI",
     description="Configuration and monitoring interface for Mnemodrome MCP server",
-    version="1.0.0",
+    version=config.MCP_VERSION,
 )
 
 # Authentication (Feature 039): form login + session cookie for browsers,
@@ -152,7 +152,11 @@ async def logout():
 @app.get("/admin/health-check")
 async def health_check():
     """Simple health check endpoint (no auth required)."""
-    return {"status": "healthy", "service": "Mnemodrome Admin UI", "version": "1.0.0"}
+    return {
+        "status": "healthy",
+        "service": "Mnemodrome Admin UI",
+        "version": config.MCP_VERSION,
+    }
 
 
 @app.get("/")
