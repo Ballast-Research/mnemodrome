@@ -1,4 +1,4 @@
-Status: active · Owner: the maintainers · Verified: 2026-11-18 · Verify-on: change to .github/workflows/release.yml, the release check in AGENTS.md, or docs/release/versioning-policy.md
+Status: active · Owner: the maintainers · Verified: 2026-11-21 · Verify-on: change to .github/workflows/release.yml, the release check in AGENTS.md, or docs/release/versioning-policy.md
 
 # Cut a release
 
@@ -14,10 +14,15 @@ Examples use `1.1.0`; replace with the version you are cutting.
 3. The version follows the last final (non-rc) tag,
    `git tag --list 'v*' --sort=-v:refname | grep -v rc | head -1`, as its next
    patch or next minor, or as an rc of that version. No skipped numbers.
-   After `vX.Y.ZrcN` the only allowed next tags are `vX.Y.Zrc(N+1)` or `vX.Y.Z`.
+   After `vX.Y.ZrcN` the only allowed next tags are `vX.Y.Zrc(N+1)` or `vX.Y.Z`,
+   plus one exception, the hotfix: the next patch of the last final tag (for
+   example `v1.0.1` while `v1.1.0rc1` is open, or its rc `v1.0.1rc1`). Cut it
+   from the last final tag, not from `main`: see [Hotfix path](#hotfix-path). A major (`X+1.0.0`) needs a reviewed change
+   to `.github/workflows/release.yml` that passes `--allow-major`; the flag is
+   deliberately not wired into CI.
 4. For a release candidate only: `.github/workflows/release.yml` skips the
-   `latest` image tag for `rc` tags. Not true yet (see step 10); do not tag an
-   rc until it is.
+   `latest` image tag for `rc` tags and marks the GitHub release as a
+   pre-release. Enforced by the workflow (see step 10).
 
 ## Steps
 
@@ -38,26 +43,36 @@ Examples use `1.1.0`; replace with the version you are cutting.
    the tag is pushed.
 7. Ask a maintainer to approve the tag. State the version and the commit:
    `git fetch origin && git rev-parse origin/main`. Stop until the maintainer says yes.
-8. Tag that commit locally:
+8. Tag that commit locally. For a normal release it is the tip of `origin/main`;
+   for a hotfix it is the tip of the hotfix branch (see [Hotfix path](#hotfix-path)),
+   never `origin/main`:
    `git switch --detach origin/main && git tag -a v1.1.0 -m "Mnemodrome 1.1.0"`
-9. Run the release check. It must exit 0. If it fails, `git tag -d v1.1.0`,
-   do not push, and see "Release check fails after merge" under Rollback.
+9. Run the release check. It must exit 0. It compares the tag with the tags in
+   your clone, so fetch first; a stale clone can pass here and still fail in the
+   workflow.
 
    ```bash
-   v=$(python3 -c "import tomllib; print(tomllib.load(open('pyproject.toml','rb'))['project']['version'])") && test "$(git describe --tags --exact-match HEAD)" = "v$v" && grep -q "^## \[$v\]" CHANGELOG.md
+   git fetch --tags origin && python3 scripts/release_check.py
    ```
+
+   If it fails, run `git tag -d v1.1.0`, do not push, and see "Release check
+   fails after merge" under Rollback.
+
+   It checks the tag format, tag == `v<pyproject version>`, the CHANGELOG
+   heading, the `uv.lock` version and the tag sequence, and prints one line per
+   failed check. A major version needs `--allow-major`.
 
 10. Push the tag: `git push origin v1.1.0`. This starts
     [`.github/workflows/release.yml`](../../.github/workflows/release.yml), which:
-    - checks out the tag, installs dependencies with `uv sync`, and runs the unit tests;
-    - logs in to GHCR and builds and pushes `ghcr.io/ballast-research/mnemodrome:<version>`
-      **and** `:latest`, where `<version>` is the tag without the leading `v`;
-    - creates a GitHub release for the tag with auto-generated notes.
+    - checks out the tag with full history, runs `python3 scripts/release_check.py`
+      (a failure stops the run before any image is built), installs dependencies with `uv sync`, and runs the unit tests;
+    - logs in to GHCR and builds and pushes `ghcr.io/ballast-research/mnemodrome:<version>`,
+      where `<version>` is the tag without the leading `v`, and also `:latest`
+      for a final tag only; an rc tag never moves `latest`;
+    - creates a GitHub release for the tag with auto-generated notes, marked as
+      a pre-release for an rc tag.
 
-    Known gaps, planned for the next release-tooling change; until then, manual:
-    the workflow pushes `latest` for every tag, including an rc; it does not mark
-    an rc release as a pre-release; it does not run the release check, so step 9
-    is the only guard.
+    Step 9 and the workflow run the same script, so a bad tag is caught twice.
 
 ## Verify
 
@@ -85,6 +100,26 @@ Use it to rehearse a release before the final tag. Only `rcN` suffixes are allow
    `uv.lock` and `CHANGELOG.md`, and `git diff v1.1.0rc1 origin/main` shows
    only the version strings and the CHANGELOG heading changing.
 
+## Hotfix path
+
+Use it when a fix must ship while a release candidate is open, or when `main`
+holds work you do not want in a patch. `main` then carries unreleased work, so
+a patch tagged from it would ship all of that.
+
+1. Branch from the last final tag: `git fetch --tags origin && git switch -c hotfix/1.0.1 v1.0.0`.
+2. Cherry-pick the fix. It is already on `main`, merged there by its own PR.
+3. Make the release commit on that branch (`pyproject.toml`, `uv.lock`, CHANGELOG
+   heading `## [1.0.1] - YYYY-MM-DD`), and open a PR against the hotfix branch.
+   Steps 4 to 7 apply as written.
+4. Tag the tip of the hotfix branch after its review (step 8), not `origin/main`.
+5. Forward-port the `1.0.1` CHANGELOG entry to `main` under `[Unreleased]` by PR,
+   so the rc line carries the fix.
+
+`scripts/release_check.py` checks tags, not ancestry: it cannot tell that a
+patch was tagged from `main`. Branching from the last final tag is a manual rule.
+The Release workflow triggers on `v*` tags regardless of the branch they sit on,
+so a tag on the hotfix branch builds and publishes like any other.
+
 ## Rollback
 
 - Before the tag is pushed: `git tag -d v1.1.0`, fix by PR, start again.
@@ -96,6 +131,9 @@ Use it to rehearse a release before the final tag. Only `rcN` suffixes are allow
 - Tag pushed, workflow failed before any image or release was published:
   a maintainer may delete the tag (`git push origin :refs/tags/v1.1.0`), and the
   tag is cut again after the fix.
+- Re-running the workflow for an older tag after a newer tag exists fails the
+  sequence check; that is intended. Re-tagging is never the fix: cut the next
+  patch (or the next rc) instead.
 - Image or release published: never move, delete or reuse the tag. Fix forward
   with the next patch (or the next rc).
 

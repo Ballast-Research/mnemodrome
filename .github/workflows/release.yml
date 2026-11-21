@@ -15,6 +15,11 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v4
+        with:
+          fetch-depth: 0 # all history and tags, so the release check sees the existing v* tags
+
+      - name: Release check
+        run: python3 scripts/release_check.py "$GITHUB_REF_NAME"
 
       - name: Install uv
         uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4 # v10.1.0
@@ -48,18 +53,29 @@ jobs:
         run: |
           echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
           # GHCR requires a lowercase repository path (github.repository is Ballast-Research/...)
-          echo "image=ghcr.io/${GITHUB_REPOSITORY,,}" >> "$GITHUB_OUTPUT"
+          image="ghcr.io/${GITHUB_REPOSITORY,,}"
+          echo "image=${image}" >> "$GITHUB_OUTPUT"
+          prerelease="$(python3 scripts/release_check.py "$GITHUB_REF_NAME" --is-prerelease)"
+          echo "prerelease=${prerelease}" >> "$GITHUB_OUTPUT"
+          # An rc never moves :latest; only a final tag does.
+          {
+            echo "tags<<EOF"
+            echo "${image}:${GITHUB_REF_NAME#v}"
+            if [ "${prerelease}" = "false" ]; then
+              echo "${image}:latest"
+            fi
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
 
       - name: Build and push Docker image
         uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
           context: .
           push: true
-          tags: |
-            ${{ steps.version.outputs.image }}:${{ steps.version.outputs.version }}
-            ${{ steps.version.outputs.image }}:latest
+          tags: ${{ steps.version.outputs.tags }}
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
         with:
           generate_release_notes: true
+          prerelease: ${{ steps.version.outputs.prerelease == 'true' }}

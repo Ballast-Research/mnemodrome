@@ -8,6 +8,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- `scripts/release_check.py`: verifies a release tag (format `vX.Y.Z` or
+  `vX.Y.ZrcN`, equals the `pyproject.toml` version, CHANGELOG heading, `uv.lock`
+  version, legal next step after the existing tags; the next patch of the last
+  final tag stays allowed while an rc is open). The release workflow runs it first.
 - **Per-agent API keys** for the MCP server (Feature 040). One key per agent,
   stored as SHA-256 digests in a JSON file (`MNEMODROME_AGENT_KEYS_FILE`) and
   compared in constant time. Covers `/mcp`, the SSE endpoints, and every hook
@@ -67,6 +71,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   are dropped instead of rendered empty.
 
 ### Changed
+- Release workflow: the `latest` image tag is pushed only for final tags, never
+  for an `rc` tag, and the GitHub release of an `rc` tag is marked as a
+  pre-release.
 - `ADMIN_WEB_ENABLED` now defaults to `false` in code as well as in Docker Compose.
   Docker Compose publishes the Admin UI port on the host loopback only.
   Upgrade note: set ADMIN_WEB_ENABLED=true (and ADMIN_PASSWORD) to keep the Admin UI on.

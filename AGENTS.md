@@ -4,7 +4,7 @@ Read this page first. It is the map. Find the row for your intent, read its
 "Read first" source and its procedure before your first change, and state the
 row and its gate in your first reply (or in the issue). If no row fits, stop and ask.
 
-Status: active · Owner: the maintainers · Verified: 2026-11-18 · Verify-on: change to this table, CONTRIBUTING.md, CHANGELOG.md or .github/workflows/
+Status: active · Owner: the maintainers · Verified: 2026-11-21 · Verify-on: change to this table, CONTRIBUTING.md, CHANGELOG.md or .github/workflows/
 
 ## 1. What this is
 
@@ -44,8 +44,8 @@ Gate kinds: **check** (a command that must exit 0), **approval** (a named person
 
 Lint and tests (what CI runs): `uv run ruff check . && uv run ruff format --check . && uv run pytest tests/unit/`
 
-Release check (tag == `pyproject.toml` version == CHANGELOG heading):
-`v=$(python3 -c "import tomllib; print(tomllib.load(open('pyproject.toml','rb'))['project']['version'])") && test "$(git describe --tags --exact-match HEAD)" = "v$v" && grep -q "^## \[$v\]" CHANGELOG.md`
+Release check (tag == `pyproject.toml` version == `uv.lock` == CHANGELOG heading, legal next step after the last tag):
+`python3 scripts/release_check.py`
 
 ## 4. Areas
 

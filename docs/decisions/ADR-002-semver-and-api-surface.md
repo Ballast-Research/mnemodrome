@@ -1,4 +1,4 @@
-Status: proposed · Owner: the maintainers · Verified: 2026-11-18 · Verify-on: change to docs/release/versioning-policy.md or to the version scheme
+Status: proposed · Owner: the maintainers · Verified: 2026-11-21 · Verify-on: change to docs/release/versioning-policy.md or to the version scheme
 
 # ADR-002: Semantic Versioning over a declared API surface
 
@@ -49,9 +49,10 @@ recorded in several files drifts.
   reversible with one setting. Any other behavior-changing default stays major.
 - PEP 440 form keeps Python packaging, git tags and image tags identical,
   at the cost of differing from the SemVer `-rc.N` spelling.
-- Tooling to enforce this (release check script, API surface snapshot, checks in
-  `.github/workflows/release.yml`, no `latest` for rc tags) is planned; until it exists, the checks
-  are manual and listed in `docs/release/versioning-policy.md`.
+- Tooling enforces this: `scripts/release_check.py` runs first in
+  `.github/workflows/release.yml`, which also skips the `latest` image tag for rc
+  tags. The API surface snapshot is planned; until it exists, that check is
+  manual (see `docs/release/versioning-policy.md`).
 
 ## Supersedes
 
