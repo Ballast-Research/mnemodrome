@@ -96,14 +96,15 @@ def check_sequence(
     # the last final tag.
     hotfix = (last[0], last[1], last[2] + 1) if last is not None else None
     if pending is not None and base != pending and base != hotfix:
-        errors.append(
+        message = (
             f"sequence: rc line {_fmt(pending)} is open; the next tag must be an rc of "
-            f"{_fmt(pending)}, the final {_fmt(pending)}, or the hotfix {_fmt(hotfix)}, "
-            f"not {_fmt(base)}"
-            if hotfix
-            else f"sequence: rc line {_fmt(pending)} is open; the next tag must be an rc of "
-            f"{_fmt(pending)} or the final {_fmt(pending)}, not {_fmt(base)}"
+            f"{_fmt(pending)}"
         )
+        if hotfix is None:
+            message += f" or the final {_fmt(pending)}, not {_fmt(base)}"
+        else:
+            message += f", the final {_fmt(pending)}, or the hotfix {_fmt(hotfix)}, not {_fmt(base)}"
+        errors.append(message)
         return errors
 
     if last is not None and base != pending:

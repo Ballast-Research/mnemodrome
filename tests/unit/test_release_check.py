@@ -242,3 +242,18 @@ def test_is_prerelease_mode(capsys):
 
 def test_is_prerelease_rejects_trailing_newline():
     assert rc.main(["v1.1.0\n", "--is-prerelease"]) == 1
+
+
+def test_hotfix_rc_accepted_while_rc_open():
+    assert rc.check_sequence("v1.0.1rc1", tags("v1.0.0", "v1.1.0rc1"), HEAD) == []
+
+
+def test_second_hotfix_rejected_before_first_exists():
+    errors = rc.check_sequence("v1.0.2", tags("v1.0.0", "v1.1.0rc1"), HEAD)
+    assert errors and "hotfix 1.0.1" in errors[0]
+
+
+def test_no_final_tag_has_no_hotfix_exception():
+    errors = rc.check_sequence("v1.0.1", tags("v1.0.0rc1"), HEAD)
+    assert errors and "hotfix" not in errors[0] and "rc line 1.0.0 is open" in errors[0]
+    assert rc.check_sequence("v1.0.0rc2", tags("v1.0.0rc1"), HEAD) == []

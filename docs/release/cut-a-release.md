@@ -16,9 +16,8 @@ Examples use `1.1.0`; replace with the version you are cutting.
    patch or next minor, or as an rc of that version. No skipped numbers.
    After `vX.Y.ZrcN` the only allowed next tags are `vX.Y.Zrc(N+1)` or `vX.Y.Z`,
    plus one exception, the hotfix: the next patch of the last final tag (for
-   example `v1.0.1` while `v1.1.0rc1` is open). Cut it like any release from a
-   branch off `main`, and add its CHANGELOG entry under `[Unreleased]` as well,
-   so the rc line carries the fix. A major (`X+1.0.0`) needs a reviewed change
+   example `v1.0.1` while `v1.1.0rc1` is open, or its rc `v1.0.1rc1`). Cut it
+   from the last final tag, not from `main`: see [Hotfix path](#hotfix-path). A major (`X+1.0.0`) needs a reviewed change
    to `.github/workflows/release.yml` that passes `--allow-major`; the flag is
    deliberately not wired into CI.
 4. For a release candidate only: `.github/workflows/release.yml` skips the
@@ -44,16 +43,20 @@ Examples use `1.1.0`; replace with the version you are cutting.
    the tag is pushed.
 7. Ask a maintainer to approve the tag. State the version and the commit:
    `git fetch origin && git rev-parse origin/main`. Stop until the maintainer says yes.
-8. Tag that commit locally:
+8. Tag that commit locally. For a normal release it is the tip of `origin/main`;
+   for a hotfix it is the tip of the hotfix branch (see [Hotfix path](#hotfix-path)),
+   never `origin/main`:
    `git switch --detach origin/main && git tag -a v1.1.0 -m "Mnemodrome 1.1.0"`
-9. Fetch the tags, then run the release check. It must exit 0.
-   `git fetch --tags origin` first: the sequence check reads local tags, and a
-   stale clone can pass here and fail in the workflow. If it fails, `git tag -d v1.1.0`,
-   do not push, and see "Release check fails after merge" under Rollback.
+9. Run the release check. It must exit 0. It compares the tag with the tags in
+   your clone, so fetch first; a stale clone can pass here and still fail in the
+   workflow.
 
    ```bash
    git fetch --tags origin && python3 scripts/release_check.py
    ```
+
+   If it fails, run `git tag -d v1.1.0`, do not push, and see "Release check
+   fails after merge" under Rollback.
 
    It checks the tag format, tag == `v<pyproject version>`, the CHANGELOG
    heading, the `uv.lock` version and the tag sequence, and prints one line per
@@ -96,6 +99,26 @@ Use it to rehearse a release before the final tag. Only `rcN` suffixes are allow
    `git diff --stat v1.1.0rc1 origin/main` lists only `pyproject.toml`,
    `uv.lock` and `CHANGELOG.md`, and `git diff v1.1.0rc1 origin/main` shows
    only the version strings and the CHANGELOG heading changing.
+
+## Hotfix path
+
+Use it when a fix must ship while a release candidate is open, or when `main`
+holds work you do not want in a patch. `main` then carries unreleased work, so
+a patch tagged from it would ship all of that.
+
+1. Branch from the last final tag: `git fetch --tags origin && git switch -c hotfix/1.0.1 v1.0.0`.
+2. Cherry-pick the fix. It is already on `main`, merged there by its own PR.
+3. Make the release commit on that branch (`pyproject.toml`, `uv.lock`, CHANGELOG
+   heading `## [1.0.1] - YYYY-MM-DD`), and open a PR against the hotfix branch.
+   Steps 4 to 7 apply as written.
+4. Tag the tip of the hotfix branch after its review (step 8), not `origin/main`.
+5. Forward-port the `1.0.1` CHANGELOG entry to `main` under `[Unreleased]` by PR,
+   so the rc line carries the fix.
+
+`scripts/release_check.py` checks tags, not ancestry: it cannot tell that a
+patch was tagged from `main`. Branching from the last final tag is a manual rule.
+The Release workflow triggers on `v*` tags regardless of the branch they sit on,
+so a tag on the hotfix branch builds and publishes like any other.
 
 ## Rollback
 

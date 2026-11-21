@@ -97,7 +97,10 @@ none" otherwise) and adds a CHANGELOG entry under `### Added`, `### Changed`,
   an rc of it; a major only with `--allow-major`; after `rcN` only `rc(N+1)` or
   the final; no tag reuse). One exception: an open rc never blocks a hotfix.
   While `v1.1.0rc1` is open, the next patch of the last final tag (`v1.0.1`)
-  is still allowed, and nothing else is. The hotfix's CHANGELOG entry must
+  is still allowed (as `v1.0.1` or `v1.0.1rc1`), and nothing else is; a second
+  hotfix `v1.0.2` waits until `v1.0.1` exists. The hotfix is cut from the last
+  final tag, not from `main` (a manual rule: the script checks tags, not
+  ancestry; see [Cut a release](cut-a-release.md#hotfix-path)). The hotfix's CHANGELOG entry must
   also land under `[Unreleased]` so the rc line carries the fix.
 - A major release needs a reviewed change to `.github/workflows/release.yml`:
   `--allow-major` is deliberately not wired into CI, so a major tag fails the
