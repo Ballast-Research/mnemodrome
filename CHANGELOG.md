@@ -31,8 +31,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   fingerprint and per-collection state (`ok`, `adopted`, `mismatch`,
   `canary_drift`, `untagged`). `semantic_search` adds a warning line when a
   searched collection does not match the active embedder.
+- `python -m src.services.embedding.model_store [--fetch DIR | --verify DIR]
+  [--url URL]` (`experimental`): lists the pinned model files (URL, size,
+  sha256), downloads them into a folder, or verifies a folder (offline path).
+  Downloads stop at the pinned size; partial files from a killed download are
+  removed at start.
 - `scripts/embedding_parity.py`: read-only P1/P2 parity check of the local
   model against Ollama and stored vectors.
+- The local tokenizer matches `tokenizers` on the golden set and common text.
+  Known limit: for a few hundred rare code points it follows Python's
+  `unicodedata` tables, which `tokenizers` does not; the Unicode version is
+  stored per collection and logged at start.
 - `scripts/release_check.py`: verifies a release tag (format `vX.Y.Z` or
   `vX.Y.ZrcN`, equals the `pyproject.toml` version, CHANGELOG heading, `uv.lock`
   version, legal next step after the existing tags; the next patch of the last
@@ -101,7 +110,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   existing `mnemodrome_<type>` collection; data is not changed (#134).
 - Deduplication of learnings and procedures is skipped (the capture is
   stored) when the collection's embedding fingerprint or canary does not match
-  the active embedder, instead of comparing scores across embedders (#134).
+  the active embedder, or could not be checked, instead of comparing scores
+  across embedders (#134).
+- Vectors are not written into a collection that does not match the active
+  embedder (or could not be checked; re-checked every 30 s). The capture is
+  still stored in the graph and files; `vector_health` counts blocked writes
+  and mixed points (#134).
+- Upgrade note: a fresh install on this version creates
+  `mnemodrome_<type>__<fingerprint8>` collections, which earlier versions do
+  not read. Upgraded installs keep their `mnemodrome_<type>` collections, so a
+  downgrade works until you run `reindex swap` (#134).
 - An Ollama fallback host (`OLLAMA_FALLBACK_URL`) that embeds the canary
   texts differently from the primary is disabled at startup (#134).
 - Release workflow: the `latest` image tag is pushed only for final tags, never

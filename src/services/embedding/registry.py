@@ -113,7 +113,10 @@ class CollectionRegistry:
         canary_vectors: list[list[float]],
         adopted: bool = False,
         built_from: str | None = None,
+        unicode_version: str | None = None,
     ) -> dict[str, Any]:
+        import unicodedata  # noqa: PLC0415
+
         record = {
             "memory_type": memory_type,
             "fingerprint": profile.fingerprint,
@@ -121,6 +124,9 @@ class CollectionRegistry:
             "canary_vectors": canary_vectors,
             "adopted": adopted,
             "built_from": built_from,
+            # Python's Unicode tables drive the tokenizer's character classes
+            # (not part of the fingerprint; see wordpiece.py).
+            "unicode_version": unicode_version or unicodedata.unidata_version,
             "registered_at": now_iso(),
         }
         self.put(collection, record)

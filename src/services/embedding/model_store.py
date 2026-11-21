@@ -67,7 +67,9 @@ def sha256_file(path: Path) -> str:
     return digest.hexdigest()
 
 
-def _download(url: str, dest: Path, expected_sha256: str) -> None:
+def _download(
+    url: str, dest: Path, expected_sha256: str, max_bytes: int | None = None
+) -> None:
     dest.parent.mkdir(parents=True, exist_ok=True)
     fd, tmp_name = tempfile.mkstemp(prefix=f".{dest.name}.", dir=dest.parent)
     tmp = Path(tmp_name)
@@ -78,7 +80,14 @@ def _download(url: str, dest: Path, expected_sha256: str) -> None:
                 "GET", url, follow_redirects=True, timeout=httpx.Timeout(60.0)
             ) as resp:
                 resp.raise_for_status()
+                received = 0
                 for chunk in resp.iter_bytes(1 << 20):
+                    received += len(chunk)
+                    if max_bytes is not None and received > max_bytes:
+                        raise ModelIntegrityError(
+                            f"{dest.name}: download exceeds the pinned size "
+                            f"({max_bytes} bytes); aborted"
+                        )
                     digest.update(chunk)
                     out.write(chunk)
         actual = digest.hexdigest()
@@ -93,6 +102,19 @@ def _download(url: str, dest: Path, expected_sha256: str) -> None:
             tmp.unlink()
 
 
+def _remove_stale_temp_files(model_dir: Path) -> None:
+    """Delete partial downloads (`.<name>.*`) left by a killed process."""
+    if not model_dir.is_dir():
+        return
+    for spec in MODEL_FILES:
+        for stale in model_dir.glob(f".{spec.name}.*"):
+            try:
+                stale.unlink()
+                logger.info(f"Removed partial download {stale.name}")
+            except OSError as e:
+                logger.warning(f"Could not remove {stale}: {e}")
+
+
 def ensure_model_files(
     model_dir: Path, base_url: str | None = None, allow_download: bool = True
 ) -> dict[str, Path]:
@@ -102,6 +124,7 @@ def ensure_model_files(
     fails) or when any file's sha256 differs from the pin.
     """
     paths: dict[str, Path] = {}
+    _remove_stale_temp_files(model_dir)
     for spec in MODEL_FILES:
         path = model_dir / spec.name
         if not path.exists():
@@ -117,7 +140,7 @@ def ensure_model_files(
                 f"Downloading embedding model file {spec.name} ({spec.size} bytes)"
             )
             try:
-                _download(url, path, spec.sha256)
+                _download(url, path, spec.sha256, max_bytes=spec.size)
             except ModelIntegrityError:
                 raise
             except Exception as e:

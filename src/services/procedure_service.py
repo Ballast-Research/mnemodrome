@@ -172,7 +172,7 @@ class ProcedureService:
         if not vector_service.enabled or not vector_service._initialized:
             return None
 
-        if not vector_service.is_trusted("procedures"):
+        if not await vector_service.ensure_trusted("procedures"):
             # Fail closed (#134): scores from a mismatched collection must not
             # decide that a new procedure is a duplicate.
             logger.warning("Procedure dedup skipped: embedding fingerprint mismatch")
@@ -248,6 +248,14 @@ class ProcedureService:
                 vector_service = get_vector_service()
                 if not vector_service.enabled or not vector_service._initialized:
                     logger.debug("Vector service unavailable, skipping embedding")
+                    return
+
+                if not await vector_service.ensure_trusted("procedures"):
+                    # #134: never mix embedders in one collection.
+                    logger.error(
+                        "Procedure vector not stored: procedures collection does "
+                        "not match the active embedder (see vector_health)"
+                    )
                     return
 
                 embed_text = embed_templates.procedure_text(

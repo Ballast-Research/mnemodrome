@@ -37,6 +37,43 @@ NOMIC_DOCUMENT_PREFIX = "search_document: "
 NOMIC_QUERY_PREFIX = "search_query: "
 NOMIC_DIM = 768
 
+# Memory bound for one forward pass (#134 review F2). The fp32 export
+# materializes attention scores as [rows, 12 heads, seq, seq] float32 per
+# layer, so a pass costs about 48 bytes * rows * seq^2 for the scores plus
+# about 3 KB * rows * seq for the hidden states. Passes are cut so that
+#   rows * seq   <= MAX_TOKENS_PER_PASS   (hidden states, ~25 MB per tensor)
+#   rows * seq^2 <= MAX_ATTENTION_CELLS   (scores, ~200 MB per layer)
+# A single text is never split: with EMBED_MAX_TOKENS above 2048 one long
+# text alone exceeds the attention bound (it grows with the square).
+MAX_TOKENS_PER_PASS = 8192
+MAX_ATTENTION_CELLS = 2048 * 2048
+
+
+def plan_batches(lengths: list[int]) -> list[list[int]]:
+    """Group text indexes into forward passes, shortest first.
+
+    Sorting by length keeps padding small; each pass respects
+    MAX_TOKENS_PER_PASS and MAX_ATTENTION_CELLS (a lone text always fits).
+    """
+    order = sorted(range(len(lengths)), key=lambda i: lengths[i])
+    batches: list[list[int]] = []
+    current: list[int] = []
+    width = 0
+    for index in order:
+        new_width = max(width, lengths[index])
+        rows = len(current) + 1
+        if current and (
+            rows * new_width > MAX_TOKENS_PER_PASS
+            or rows * new_width * new_width > MAX_ATTENTION_CELLS
+        ):
+            batches.append(current)
+            current, new_width = [], lengths[index]
+        current.append(index)
+        width = new_width
+    if current:
+        batches.append(current)
+    return batches
+
 
 class LocalOnnxEmbedder:
     """In-process nomic-embed-text-v1.5 (fp32) on ONNX Runtime, CPU only."""
@@ -131,11 +168,11 @@ class LocalOnnxEmbedder:
         )
         return True
 
-    def _run(self, texts: list[str]) -> list[list[float]]:
+    def _forward(self, encoded: list[list[int]]) -> list[list[float]]:
+        """One forward pass; rows are padded to the longest row."""
         import numpy as np  # noqa: PLC0415
 
-        assert self._tokenizer is not None and self._session is not None
-        encoded = [self._tokenizer.encode(t, self.max_tokens) for t in texts]
+        assert self._session is not None
         width = max(len(ids) for ids in encoded)
         input_ids = np.zeros((len(encoded), width), dtype=np.int64)
         mask = np.zeros((len(encoded), width), dtype=np.int64)
@@ -153,6 +190,17 @@ class LocalOnnxEmbedder:
         norms = np.linalg.norm(pooled, axis=1, keepdims=True)
         pooled = pooled / np.clip(norms, 1e-12, None)
         return pooled.astype(np.float32).tolist()
+
+    def _run(self, texts: list[str]) -> list[list[float]]:
+        """Embed texts in length-sorted passes bounded by plan_batches()."""
+        assert self._tokenizer is not None
+        encoded = [self._tokenizer.encode(t, self.max_tokens) for t in texts]
+        out: list[list[float] | None] = [None] * len(texts)
+        for group in plan_batches([len(ids) for ids in encoded]):
+            vectors = self._forward([encoded[i] for i in group])
+            for i, vector in zip(group, vectors, strict=True):
+                out[i] = vector
+        return out  # type: ignore[return-value]
 
     async def embed_batch(
         self, texts: list[str], role: str = ROLE_QUERY

@@ -425,14 +425,16 @@ runs the model is set by `EMBED_PROVIDER`:
 | Value | What runs | Notes |
 |---|---|---|
 | `ollama` (default) | `nomic-embed-text` in your Ollama | Vectors depend on the Ollama version. Ollama 0.30.0 changed how this model handles upper case, so an Ollama upgrade can silently change search results. |
-| `local-onnx` | pinned `nomic-embed-text-v1.5` (fp32) inside Mnemodrome, on CPU | No Ollama needed for memory. Upgrading Ollama never changes stored vectors. About 0.6 to 1.5 GB more RAM. Needs the `onnx` extra (included in the Docker image). |
+| `local-onnx` | pinned `nomic-embed-text-v1.5` (fp32) inside Mnemodrome, on CPU | No Ollama needed for memory. Upgrading Ollama never changes stored vectors. Memory: about 0.9 GB resident once loaded, up to about 2.2 GB peak while embedding 2048-token texts (measured; lower `EMBED_MAX_TOKENS` lowers the peak). Needs the `onnx` extra (included in the Docker image). |
 | `openai-compatible` | any `/v1/embeddings` endpoint (`EMBED_BASE_URL`, `EMBED_MODEL`, `EMBED_API_KEY`) | Mnemodrome cannot pin a remote engine; the startup canary detects changes. |
 
 Every Qdrant collection records the fingerprint of the embedder that built it
 (model files, tokenizer, prefixes, max length, template version) and a set of
 canary vectors. At startup Mnemodrome compares both. On a mismatch, search
-results carry a warning, deduplication is skipped (captures are still
-stored), and `vector_health` says which collections to rebuild.
+results carry a warning, deduplication is skipped, new vectors are not
+written into that collection (the capture itself is still stored in the
+graph and files; only its vector is held back), and `vector_health` says
+which collections to rebuild and how many writes were blocked.
 
 ### Switching provider on existing data
 
@@ -449,6 +451,15 @@ EMBED_PROVIDER=local-onnx uv run --extra onnx python -m src.cli.reindex catch-up
 # Undo at any time: point the aliases back and restart with the old provider.
 EMBED_PROVIDER=local-onnx uv run --extra onnx python -m src.cli.reindex rollback
 ```
+
+Between `swap` and the restart, a server still running the old provider writes
+old-provider vectors into the new collection; `vector_health` counts them as
+mixed points and step 3 re-embeds them.
+
+Downgrade note: versions before this one read `mnemodrome_<type>` directly.
+An upgraded install keeps those collections (the aliases point at them until
+you swap), so a downgrade works. A fresh install on this version creates only
+`mnemodrome_<type>__<fp8>`, which older versions do not read.
 
 `python -m src.cli.reindex status` shows, per memory type, the live and target
 collections and their point counts. Use `build --dry-run` to count first.

@@ -3839,8 +3839,17 @@ async def vector_health() -> str:
                     f"- **{mem_type}**: {state.get('collection')} -> "
                     f"{state.get('status')} ({state.get('detail', '')})"
                 )
-                if "points_not_tagged_active" in state:
-                    report += f"; points not tagged with the active fingerprint: {state['points_not_tagged_active']}"
+                for key, label in (
+                    (
+                        "points_not_tagged_active",
+                        "not tagged with the active fingerprint",
+                    ),
+                    ("points_untagged", "untagged (legacy)"),
+                    ("points_mixed", "mixed (another embedder)"),
+                    ("blocked_writes", "vector writes blocked"),
+                ):
+                    if key in state:
+                        report += f"; {label}: {state[key]}"
                 report += "\n"
 
         # Recommendations

@@ -18,6 +18,8 @@ Code reads and writes through the `mnemodrome_<type>_live` aliases.
 
 import asyncio
 import os
+import time
+import unicodedata
 import uuid
 from datetime import datetime
 from typing import Any
@@ -43,7 +45,9 @@ try:
     from qdrant_client.models import (
         FieldCondition,
         Filter,
+        IsEmptyCondition,
         MatchValue,
+        PayloadField,
         PointStruct,
     )
 
@@ -361,6 +365,10 @@ class VectorService:
         self.COLLECTION_PROCEDURES = _registry.live_alias("procedures")
         # memory type -> {"alias", "collection", "status", "detail"}
         self.collection_status: dict[str, dict[str, Any]] = {}
+        self.blocked_writes: dict[str, int] = {}
+        self._last_recheck: dict[str, float] = {}
+        self._canary_cache: list[list[float]] | None = None
+        self._registered_fp: dict[str, str | None] = {}
 
         if not self.enabled:
             logger.info("Vector layer disabled")
@@ -437,15 +445,68 @@ class VectorService:
     def is_trusted(self, memory_type: str) -> bool:
         """True when scores in this collection come from the active embedder.
 
-        Unknown state (no check ran, e.g. tests) counts as trusted so the
-        behaviour matches earlier releases.
+        `unknown` (the check could not run) is NOT trusted: dedup fails safe
+        and writes are held back until `ensure_trusted()` re-checks. A type
+        with no entry at all (the collection setup never ran, e.g. unit tests
+        with mocks) keeps the earlier behaviour.
         """
         state = self.collection_status.get(memory_type)
         if state is None:
             return True
-        return state.get("status") in _registry.TRUSTED or state.get("status") == (
-            _registry.STATUS_UNKNOWN
+        return state.get("status") in _registry.TRUSTED
+
+    async def ensure_trusted(self, memory_type: str) -> bool:
+        """is_trusted(), re-running the check first when the state is unknown.
+
+        The re-check is rate-limited (RECHECK_INTERVAL_S) so a broken embedder
+        does not add a canary run to every capture.
+        """
+        state = self.collection_status.get(memory_type)
+        if (
+            state is not None
+            and state.get("status") == _registry.STATUS_UNKNOWN
+            and state.get("collection")
+        ):
+            now = time.monotonic()
+            if (
+                now - self._last_recheck.get(memory_type, 0.0)
+                >= self.RECHECK_INTERVAL_S
+            ):
+                self._last_recheck[memory_type] = now
+                try:
+                    status, detail = await self._check_fingerprint(
+                        memory_type, state["collection"], created=False
+                    )
+                    state.update(
+                        status=status,
+                        detail=detail,
+                        fingerprint=self._registered_fp.get(state["collection"]),
+                    )
+                    logger.info(
+                        f"Embedding re-check {memory_type}: {status} ({detail})"
+                    )
+                except Exception as e:
+                    logger.warning(f"Embedding re-check failed for {memory_type}: {e}")
+        return self.is_trusted(memory_type)
+
+    async def _writable(self, memory_type: str) -> bool:
+        """Block vector writes into a collection built by another embedder (#134).
+
+        Writing anyway would mix two embedders in one collection. The capture
+        itself (graph, files) is unaffected; only its vector is not stored.
+        Rebuild with `python -m src.cli.reindex` to clear the block.
+        """
+        if await self.ensure_trusted(memory_type):
+            return True
+        self.blocked_writes[memory_type] = self.blocked_writes.get(memory_type, 0) + 1
+        status = self.collection_status.get(memory_type, {}).get("status")
+        logger.error(
+            f"Vector write blocked for {memory_type}: collection status '{status}' "
+            f"does not match the active embedder ({self.embed_provider}). "
+            f"Blocked so far: {self.blocked_writes[memory_type]}. "
+            "Rebuild with python -m src.cli.reindex (see vector_health)."
         )
+        return False
 
     def trust_warning(self, memory_types: list[str] | tuple[str, ...]) -> str | None:
         """Warning text for search output when any searched collection is not trusted."""
@@ -532,6 +593,8 @@ class VectorService:
             pass
         return None
 
+    RECHECK_INTERVAL_S = 30.0
+
     async def _ensure_collections(self, dimension: int):
         """Resolve every `_live` alias, create missing collections, and check
         each collection's dimension and embedding fingerprint (#134).
@@ -541,6 +604,10 @@ class VectorService:
         `health_check()`; rebuild with `python -m src.cli.reindex`.
         """
         self.registry = _registry.CollectionRegistry(self.client)
+        self._canary_cache = None
+        logger.info(
+            f"Unicode data version for the tokenizer: {unicodedata.unidata_version}"
+        )
         try:
             await asyncio.to_thread(self.registry.ensure)
         except Exception as e:
@@ -599,19 +666,30 @@ class VectorService:
             "collection": physical,
             "status": status,
             "detail": detail,
+            "fingerprint": self._registered_fp.get(physical),
         }
+        if status == _registry.STATUS_UNKNOWN:
+            self._last_recheck[memory_type] = time.monotonic()
         level = "info" if status in _registry.TRUSTED else "error"
         getattr(logger, level)(
             f"Embedding check {memory_type}: {physical} -> {status} ({detail})"
         )
 
     async def _embed_canary(self) -> list[list[float]] | None:
-        vectors = await self.embedder.embed_batch(
-            list(_canary.CANARY_TEXTS), ROLE_DOCUMENT
-        )
-        if not vectors or any(not v for v in vectors):
-            return None
-        return [list(map(float, v)) for v in vectors]
+        """Canary vectors of the active embedder: computed once per start,
+        reused for every collection (one retry on failure)."""
+        if self._canary_cache is not None:
+            return self._canary_cache
+        for attempt in range(2):
+            vectors = await self.embedder.embed_batch(
+                list(_canary.CANARY_TEXTS), ROLE_DOCUMENT
+            )
+            if vectors and all(vectors):
+                self._canary_cache = [list(map(float, v)) for v in vectors]
+                return self._canary_cache
+            if attempt == 0:
+                await asyncio.sleep(1.0)
+        return None
 
     async def _check_fingerprint(
         self, memory_type: str, physical: str, created: bool
@@ -621,6 +699,7 @@ class VectorService:
         if reg is None or profile is None:
             return _registry.STATUS_UNKNOWN, "no registry or profile"
         record = await asyncio.to_thread(reg.get, physical)
+        self._registered_fp[physical] = (record or {}).get("fingerprint")
         if record is None:
             count = (
                 await asyncio.to_thread(
@@ -639,12 +718,33 @@ class VectorService:
                 return _registry.STATUS_UNKNOWN, "canary embedding failed"
             adopted = bool(count) and not created
             await asyncio.to_thread(
-                reg.register, physical, memory_type, profile, canary_vectors, adopted
+                reg.register,
+                physical,
+                memory_type,
+                profile,
+                canary_vectors,
+                adopted,
+                None,
+                unicodedata.unidata_version,
             )
             await asyncio.to_thread(reg.ensure_fp_index, physical)
+            self._registered_fp[physical] = profile.fingerprint
             return (
                 _registry.STATUS_ADOPTED if adopted else _registry.STATUS_OK,
                 f"registered fingerprint {profile.short_fingerprint}",
+            )
+        unicode_note = ""
+        recorded_unicode = record.get("unicode_version")
+        if recorded_unicode and recorded_unicode != unicodedata.unidata_version:
+            # Not part of the fingerprint: it moves tokens only for rare code
+            # points. Reported so a rebuild can be planned (see wordpiece.py).
+            unicode_note = (
+                f"; unicode {recorded_unicode} -> {unicodedata.unidata_version}"
+            )
+            logger.warning(
+                f"{physical} was built with Unicode {recorded_unicode}, this Python "
+                f"has {unicodedata.unidata_version}: rare code points may tokenize "
+                "differently"
             )
         if record.get("fingerprint") != profile.fingerprint:
             return (
@@ -668,7 +768,10 @@ class VectorService:
             if ok
             else _registry.STATUS_CANARY_DRIFT
         )
-        return status, f"canary min cosine {worst:.6f} (tolerance {tolerance})"
+        return (
+            status,
+            f"canary min cosine {worst:.6f} (tolerance {tolerance}){unicode_note}",
+        )
 
     async def _warn_on_dimension_mismatch(self, collection_name: str, dimension: int):
         """Log a clear error when a collection's dimension differs from the model.
@@ -899,6 +1002,9 @@ class VectorService:
         if not self.enabled or not self._initialized:
             return False
 
+        if not await self._writable("prompts"):
+            return False
+
         if not embedding:
             return False
 
@@ -1049,6 +1155,9 @@ class VectorService:
         if not self.enabled or not self._initialized:
             return False
 
+        if not await self._writable("prompts"):
+            return False
+
         try:
             # Prompts are compared with prompts: one role on both sides, so a
             # vector made for search can be stored as is.
@@ -1117,6 +1226,9 @@ class VectorService:
             UUID string if successful, False otherwise
         """
         if not self.enabled or not self._initialized:
+            return False
+
+        if not await self._writable("learnings"):
             return False
 
         try:
@@ -1238,6 +1350,9 @@ class VectorService:
         if not self.enabled or not self._initialized:
             return False
 
+        if not await self._writable("sessions"):
+            return False
+
         try:
             # Combine summary and key insights for richer embedding
             combined_text = _templates.session_text(summary, key_insights)
@@ -1304,6 +1419,9 @@ class VectorService:
             UUID string if successful, False otherwise
         """
         if not self.enabled or not self._initialized:
+            return False
+
+        if not await self._writable("facts"):
             return False
 
         try:
@@ -1667,19 +1785,40 @@ class VectorService:
                 "error": str(e),
             }
 
+    async def _count(self, collection: str, flt) -> int | str:
+        try:
+            result = await asyncio.to_thread(
+                self.client.count,
+                collection_name=collection,
+                count_filter=flt,
+                exact=True,
+            )
+            return result.count
+        except Exception as e:
+            return f"unknown ({e})"
+
     async def _embedding_health(self) -> dict[str, Any]:
-        """Embedding identity and per-collection fingerprint state (#134)."""
+        """Embedding identity and per-collection fingerprint state (#134).
+
+        For every collection (trusted or not): points not tagged with the
+        active fingerprint, points without any tag (legacy), and mixed points
+        (tagged with a fingerprint other than the collection's own).
+        """
         fingerprint = self._active_fingerprint()
         per_type: dict[str, Any] = {}
         for memory_type, state in self.collection_status.items():
             entry = dict(state)
             physical = state.get("collection")
-            if physical and fingerprint and state.get("status") in _registry.TRUSTED:
-                try:
-                    stale = await asyncio.to_thread(
-                        self.client.count,
-                        collection_name=physical,
-                        count_filter=Filter(
+            entry["blocked_writes"] = self.blocked_writes.get(memory_type, 0)
+            if physical:
+                untagged = Filter(
+                    must=[IsEmptyCondition(is_empty=PayloadField(key=_registry.FP_KEY))]
+                )
+                entry["points_untagged"] = await self._count(physical, untagged)
+                if fingerprint:
+                    entry["points_not_tagged_active"] = await self._count(
+                        physical,
+                        Filter(
                             must_not=[
                                 FieldCondition(
                                     key=_registry.FP_KEY,
@@ -1687,19 +1826,32 @@ class VectorService:
                                 )
                             ]
                         ),
-                        exact=True,
                     )
-                    entry["points_not_tagged_active"] = stale.count
-                except Exception as e:
-                    entry["points_not_tagged_active"] = f"unknown ({e})"
+                own = state.get("fingerprint")
+                if own:
+                    entry["points_mixed"] = await self._count(
+                        physical,
+                        Filter(
+                            must_not=[
+                                FieldCondition(
+                                    key=_registry.FP_KEY, match=MatchValue(value=own)
+                                ),
+                                IsEmptyCondition(
+                                    is_empty=PayloadField(key=_registry.FP_KEY)
+                                ),
+                            ]
+                        ),
+                    )
             per_type[memory_type] = entry
         mismatched = [t for t in self.collection_status if not self.is_trusted(t)]
         return {
             "embed_provider": self.embed_provider,
             "embed_fingerprint": fingerprint,
             "embed_profile": (p.to_dict() if (p := self._active_profile()) else None),
+            "embed_unicode_version": unicodedata.unidata_version,
             "embed_collections": per_type,
             "embed_mismatch": mismatched,
+            "embed_blocked_writes": sum(self.blocked_writes.values()),
         }
 
     def is_enabled(self) -> bool:

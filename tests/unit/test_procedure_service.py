@@ -46,6 +46,7 @@ def _make_mock_vector_service(enabled=True, initialized=True, embedding=None):
     vs.embed_text = AsyncMock(return_value=embedding)
     vs.client = MagicMock()
     vs.is_trusted = MagicMock(return_value=True)
+    vs.ensure_trusted = AsyncMock(return_value=True)
     vs.tag_payload = MagicMock(side_effect=lambda p: {**p, "embed_fp": "test-fp"})
     return vs
 
@@ -263,7 +264,7 @@ class TestCheckDuplicate:
     async def test_fails_closed_on_fingerprint_mismatch(self):
         """#134: a mismatched collection must not mark a procedure duplicate."""
         mock_vs = _make_mock_vector_service()
-        mock_vs.is_trusted = MagicMock(return_value=False)
+        mock_vs.ensure_trusted = AsyncMock(return_value=False)
 
         with patch(_PATCH_VECTOR, return_value=mock_vs):
             svc = ProcedureService()

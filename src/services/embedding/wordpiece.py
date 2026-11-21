@@ -10,8 +10,14 @@ continuation, `[UNK]` for words over 100 characters), then
 
 Kept in the repo instead of depending on `tokenizers` so the embedding
 pipeline has no hidden version drift and no extra transitive packages.
-Exactness is proved by `tests/unit/test_wordpiece.py` against token IDs
-produced by `tokenizers` from the same pinned `tokenizer.json`.
+`tests/unit/test_wordpiece.py` checks token-ID equality with `tokenizers`
+(same pinned `tokenizer.json`) on a golden set. Equality holds for that set
+and for common text. Known limit: character classes come from Python's
+`unicodedata` (Unicode 14 on 3.11, 15 on 3.12), while `tokenizers` ships
+its own older tables. For several hundred rare code points (newer marks,
+rare scripts) the reference gives `[UNK]` and this code may split or match
+a piece. The Unicode version is logged and stored in the collection
+registry (`unicode_version`); see the known differences in the fixture.
 """
 
 from __future__ import annotations
@@ -104,7 +110,10 @@ class WordPieceTokenizer:
                 out.append(ch)
         text = unicodedata.normalize("NFD", "".join(out))
         text = "".join(ch for ch in text if unicodedata.category(ch) != "Mn")
-        return text.lower()
+        # Per character, like `tokenizers`: str.lower() on the whole string
+        # applies the final-sigma rule (Σ -> ς at a word end), the reference
+        # does not (Σ -> σ always).
+        return "".join(ch.lower() for ch in text)
 
     # --- pre-tokenizer ----------------------------------------------------
 

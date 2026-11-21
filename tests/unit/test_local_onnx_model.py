@@ -68,6 +68,22 @@ def test_case_does_not_change_the_vector(embedder):
 
 @pytest.mark.model
 @needs_model
+def test_batched_equals_single(embedder):
+    emb, loop = embedder
+    texts = [
+        "short",
+        "word " * 900,
+        "a medium sized sentence about vectors",
+        "x " * 3000,
+    ]
+    batched = loop.run_until_complete(emb.embed_batch(texts, "document"))
+    for text, vec in zip(texts, batched, strict=True):
+        single = loop.run_until_complete(emb.embed(text, "document"))
+        assert cosine(vec, single) >= 0.99999
+
+
+@pytest.mark.model
+@needs_model
 def test_prefix_is_applied_per_role(embedder):
     emb, loop = embedder
     doc = loop.run_until_complete(emb.embed("vector databases", "document"))

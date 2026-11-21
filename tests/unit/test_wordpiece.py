@@ -1,10 +1,14 @@
 """WordPiece tokenizer parity with Hugging Face `tokenizers` (#134).
 
 The fixture holds token IDs produced by `tokenizers==0.23.3` from the pinned
-`tokenizer.json` of nomic-embed-text-v1.5 (revision e9b6763) for 317 inputs:
-mixed case, ALL CAPS, accents, CJK, emoji, control and private-use
-characters, special-token literals, a 3000-word text and truncation.
-Any difference fails: the token IDs feed every stored vector.
+`tokenizer.json` of nomic-embed-text-v1.5 (revision e9b6763) for 322 inputs:
+mixed case, ALL CAPS (including Greek final sigma), accents, CJK, emoji,
+control and private-use characters, special-token literals, a 3000-word text
+and truncation. Any difference fails: the token IDs feed every stored vector.
+
+`known_differences` lists rare code points where `tokenizers` (own, older
+Unicode tables) and Python's `unicodedata` disagree. They are documented,
+not gated; the Unicode version is stored in the collection registry.
 
 `vocab.txt` (Apache-2.0, nomic-ai/nomic-embed-text-v1.5) is committed so this
 test runs in CI without downloading the model.
@@ -56,6 +60,21 @@ def test_uncased_input_gives_same_ids(tokenizer):
     assert tokenizer.encode("REPLACE SUMP PUMP") != tokenizer.encode(
         "CREATE A SPREADSHEET"
     )
+
+
+def test_final_sigma_lowercased_per_character(tokenizer):
+    # str.lower() would turn a word-final Σ into ς; the reference gives σ.
+    assert tokenizer.normalize("ΟΔΟΣ") == "οδοσ"
+    assert tokenizer.encode("ΣΊΣΥΦΟΣ") == tokenizer.encode("σισυφοσ")
+
+
+def test_known_unicode_differences_are_documented(golden):
+    known = golden["known_differences"]
+    assert len(known) >= 5
+    texts = {c["text"] for c in golden["cases"]}
+    for item in known:
+        assert item["codepoint"].startswith("U+") and item["reference_ids"]
+        assert item["text"] not in texts  # never part of the gated set
 
 
 def test_truncation_keeps_special_tokens(tokenizer):

@@ -192,3 +192,86 @@ async def test_ollama_fallback_kept_when_identical():
 def test_unknown_provider_rejected():
     with pytest.raises(ValueError, match="EMBED_PROVIDER"):
         VectorService(enabled=False, embed_provider="tei")
+
+
+@pytest.mark.asyncio
+async def test_writes_blocked_into_untrusted_collection(client):
+    """#134 review F5: never mix two embedders in one collection."""
+    _legacy(client)
+    emb = FakeEmbedder(provider="local-onnx", is_remote=False)
+    svc = await _service(client, emb, provider="local-onnx")
+    before = client.count("mnemodrome_facts").count
+    result = await svc.store_fact_embedding(
+        "A", "R", "B", "", "1c1d2e3f-4a5b-4c6d-8e7f-8091a2b3c4d5"
+    )
+    assert result is False
+    assert client.count("mnemodrome_facts").count == before
+    health = await svc.health_check()
+    facts = health["embed_collections"]["facts"]
+    assert facts["blocked_writes"] == 1
+    assert facts["points_untagged"] == 3
+    assert health["embed_blocked_writes"] == 1
+
+
+@pytest.mark.asyncio
+async def test_health_counts_mixed_points_for_every_collection(client):
+    emb = FakeEmbedder()
+    await _service(client, emb)
+    # Another embedder's point lands in the collection (e.g. a stale server
+    # after a swap): it must show up as mixed, trusted or not.
+    client.upsert(
+        "mnemodrome_facts_live",
+        points=[PointStruct(id=77, vector=[0.2] * 8, payload={"embed_fp": "other"})],
+    )
+    svc = await _service(client, FakeEmbedder(model="model-b"))
+    facts = (await svc.health_check())["embed_collections"]["facts"]
+    assert facts["status"] == registry.STATUS_MISMATCH
+    assert facts["points_mixed"] == 1
+    assert facts["points_not_tagged_active"] == 1
+
+
+@pytest.mark.asyncio
+async def test_unknown_is_not_trusted_and_is_rechecked(client):
+    """#134 review F6: a failed canary must not leave dedup unprotected."""
+
+    class Flaky(FakeEmbedder):
+        fail = True
+
+        async def embed_batch(self, texts, role="query"):
+            if self.fail:
+                return [None] * len(texts)
+            return await super().embed_batch(texts, role)
+
+    emb = Flaky()
+    svc = await _service(client, emb)
+    assert svc.collection_status["facts"]["status"] == registry.STATUS_UNKNOWN
+    assert not svc.is_trusted("facts")
+    emb.fail = False
+    svc._last_recheck.clear()  # skip the rate limit
+    assert await svc.ensure_trusted("facts") is True
+    assert svc.collection_status["facts"]["status"] == registry.STATUS_OK
+
+
+@pytest.mark.asyncio
+async def test_canary_embedded_once_per_start(client):
+    """#134 review F7: one canary run per start, shared by all collections."""
+    emb = FakeEmbedder()
+    await _service(client, emb)
+    emb.calls.clear()
+    await _service(client, emb)
+    canary_calls = [c for c in emb.calls if c[1] == "document"]
+    from src.services.embedding.canary import CANARY_TEXTS
+
+    assert len(canary_calls) == len(CANARY_TEXTS)
+
+
+@pytest.mark.asyncio
+async def test_registry_records_unicode_version(client):
+    import unicodedata
+
+    emb = FakeEmbedder()
+    await _service(client, emb)
+    record = registry.CollectionRegistry(client).get(
+        f"mnemodrome_facts__{emb.profile.short_fingerprint}"
+    )
+    assert record["unicode_version"] == unicodedata.unidata_version

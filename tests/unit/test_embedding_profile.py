@@ -165,7 +165,8 @@ class TestModelStore:
     def test_download_uses_mirror_and_verifies(self, tiny_files, tmp_path, monkeypatch):
         seen = []
 
-        def fake_download(url, dest: Path, expected):
+        def fake_download(url, dest: Path, expected, max_bytes=None):
+            assert max_bytes == len(tiny_files[dest.name])
             seen.append(url)
             dest.write_bytes(tiny_files[dest.name])
 
@@ -177,7 +178,7 @@ class TestModelStore:
         ]
 
     def test_failed_download_fails_closed(self, tiny_files, tmp_path, monkeypatch):
-        def broken(url, dest, expected):
+        def broken(url, dest, expected, max_bytes=None):
             raise OSError("network down")
 
         monkeypatch.setattr(model_store, "_download", broken)
@@ -206,3 +207,73 @@ def test_model_store_cli_lists_and_verifies(tmp_path, capsys):
     out = capsys.readouterr().out
     assert "model.onnx" in out and model_store.WEIGHTS_SHA256 in out
     assert model_store.main(["--verify", str(tmp_path)]) == 1
+
+
+class TestPlanBatches:
+    """#134 review F2: forward passes are bounded in tokens and attention."""
+
+    def test_every_index_once_and_bounds_hold(self):
+        from src.services.embedding.providers import (
+            MAX_ATTENTION_CELLS,
+            MAX_TOKENS_PER_PASS,
+            plan_batches,
+        )
+
+        lengths = [5, 2048, 12, 700, 2048, 30, 1500, 3, 400, 2048, 64, 9] * 3
+        batches = plan_batches(lengths)
+        flat = sorted(i for b in batches for i in b)
+        assert flat == list(range(len(lengths)))
+        for batch in batches:
+            width = max(lengths[i] for i in batch)
+            assert len(batch) * width <= MAX_TOKENS_PER_PASS
+            assert len(batch) * width * width <= MAX_ATTENTION_CELLS
+
+    def test_long_texts_run_alone_short_texts_share(self):
+        from src.services.embedding.providers import plan_batches
+
+        batches = plan_batches([2048, 2048, 10, 10, 10])
+        assert [len(b) for b in batches] == [3, 1, 1]
+
+    def test_text_over_the_bound_still_runs(self):
+        from src.services.embedding.providers import plan_batches
+
+        assert plan_batches([8192]) == [[0]]
+        assert plan_batches([]) == []
+
+
+class TestDownloadGuards:
+    """#134 review F8: size cap and stale partial files."""
+
+    def test_stream_over_pinned_size_is_aborted(self, tmp_path, monkeypatch):
+        import httpx
+
+        def handler(request):
+            return httpx.Response(200, content=b"x" * 100)
+
+        def fake_stream(method, url, **kw):
+            kw.pop("follow_redirects", None)
+            client = httpx.Client(transport=httpx.MockTransport(handler))
+            return client.stream(method, url, **kw)
+
+        monkeypatch.setattr(model_store.httpx, "stream", fake_stream)
+        dest = tmp_path / "model.onnx"
+        with pytest.raises(model_store.ModelIntegrityError, match="pinned size"):
+            model_store._download(
+                "https://mirror.invalid/model.onnx", dest, "0" * 64, max_bytes=10
+            )
+        assert not dest.exists()
+        assert list(tmp_path.iterdir()) == []
+
+    def test_stale_partial_files_removed(self, tmp_path, monkeypatch):
+        blob = b"weights"
+        spec = model_store.ModelFile(
+            name="model.onnx",
+            default_url="https://example.invalid/model.onnx",
+            sha256=hashlib.sha256(blob).hexdigest(),
+            size=len(blob),
+        )
+        monkeypatch.setattr(model_store, "MODEL_FILES", (spec,))
+        (tmp_path / "model.onnx").write_bytes(blob)
+        (tmp_path / ".model.onnx.abc123").write_bytes(b"partial")
+        model_store.ensure_model_files(tmp_path, allow_download=False)
+        assert not (tmp_path / ".model.onnx.abc123").exists()
