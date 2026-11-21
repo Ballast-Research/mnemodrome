@@ -26,6 +26,8 @@ from src.config import (
 )
 from src.models.procedure_models import Procedure, ProcedureMatch
 from src.services.agent_auth import current_agent
+from src.services.embedding import templates as embed_templates
+from src.services.embedding.profile import ROLE_DOCUMENT, ROLE_QUERY
 from src.services.entity_factory import entity_factory
 from src.services.event_log_service import event_log_service
 from src.services.file_service import file_service, slugify
@@ -33,7 +35,8 @@ from src.services.neo4j_service import neo4j_service
 from src.services.vector_service import get_vector_service
 
 # Qdrant collection name for procedures
-COLLECTION_PROCEDURES = "mnemodrome_procedures"
+# Logical name: an alias to the physical collection (#134).
+COLLECTION_PROCEDURES = "mnemodrome_procedures_live"
 
 
 class ProcedureService:
@@ -169,8 +172,14 @@ class ProcedureService:
         if not vector_service.enabled or not vector_service._initialized:
             return None
 
-        embed_text = f"{symptom} {root_cause}"
-        embedding = await vector_service.embed_text(embed_text)
+        if not vector_service.is_trusted("procedures"):
+            # Fail closed (#134): scores from a mismatched collection must not
+            # decide that a new procedure is a duplicate.
+            logger.warning("Procedure dedup skipped: embedding fingerprint mismatch")
+            return None
+
+        embed_text = embed_templates.procedure_text(symptom, root_cause)
+        embedding = await vector_service.embed_text(embed_text, ROLE_DOCUMENT)
         if not embedding:
             return None
 
@@ -241,8 +250,10 @@ class ProcedureService:
                     logger.debug("Vector service unavailable, skipping embedding")
                     return
 
-                embed_text = f"{procedure.symptom} {procedure.root_cause}"
-                embedding = await vector_service.embed_text(embed_text)
+                embed_text = embed_templates.procedure_text(
+                    procedure.symptom, procedure.root_cause
+                )
+                embedding = await vector_service.embed_text(embed_text, ROLE_DOCUMENT)
                 if not embedding:
                     logger.warning(f"Empty embedding for procedure {proc_uuid}")
                     return
@@ -257,6 +268,7 @@ class ProcedureService:
                     "outcome": procedure.outcome,
                     "created_at": procedure.created_at.isoformat(),
                 }
+                payload = vector_service.tag_payload(payload)
 
                 from qdrant_client.models import PointStruct
 
@@ -488,7 +500,7 @@ class ProcedureService:
         """Semantic search via Qdrant, enriched from Neo4j."""
         vector_service = get_vector_service()
 
-        embedding = await vector_service.embed_text(query_text)
+        embedding = await vector_service.embed_text(query_text, ROLE_QUERY)
         if not embedding:
             return []
 

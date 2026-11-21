@@ -180,7 +180,7 @@ class TestVectorSimilaritySearch:
         mock_vector.search_similar_learnings.return_value = []
         await svc.vector_similarity_search("content", threshold=0.80, limit=10)
         mock_vector.search_similar_learnings.assert_called_once_with(
-            query_text="content", limit=10, min_score=0.80
+            query_text="content", limit=10, min_score=0.80, role="document"
         )
 
     async def test_graceful_degradation_when_vector_disabled(self, svc, mock_vector):

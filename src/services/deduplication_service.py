@@ -276,11 +276,22 @@ class DeduplicationService:
                 return []
             raise RuntimeError("Vector service unavailable")
 
+        is_trusted = getattr(self.vector_service, "is_trusted", None)
+        if callable(is_trusted) and is_trusted("learnings") is False:
+            # Fail closed (#134): scores from a collection built by another
+            # embedder must not skip or merge a capture. Store it; dedup later.
+            logger.warning(
+                "Deduplication skipped: learnings collection has an embedding "
+                "fingerprint mismatch (see vector_health)"
+            )
+            return []
+
         try:
             results = await self.vector_service.search_similar_learnings(
                 query_text=content,
                 limit=limit,
                 min_score=threshold,
+                role="document",
             )
         except Exception as e:
             if self.enable_graceful_degradation:

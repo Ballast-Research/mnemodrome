@@ -3469,13 +3469,28 @@ async def semantic_search(
             f"Semantic search completed in {query_time:.1f}ms ({len(results)} results)"
         )
 
+        # #134: say so when a searched collection was built by another embedder.
+        searched_types = (
+            ["prompts", "learnings", "sessions", "facts"]
+            if search_type == "all"
+            else [search_type]
+        )
+        trust_warning = None
+        if hasattr(vector_service, "trust_warning"):
+            trust_warning = vector_service.trust_warning(searched_types)
+        warning_md = (
+            f"> **Warning**: {trust_warning}\n\n"
+            if isinstance(trust_warning, str)
+            else ""
+        )
+
         if format == "report":
-            return _format_evidence_report(results, query, query_time)
+            return warning_md + _format_evidence_report(results, query, query_time)
 
         if not results:
-            return f"# Semantic Search Results\n\nNo matching content found for query: '{query}'\n\nTry with different keywords or a lower minimum similarity score."
+            return f"# Semantic Search Results\n\n{warning_md}No matching content found for query: '{query}'\n\nTry with different keywords or a lower minimum similarity score."
 
-        markdown = f"# Semantic Search Results\n\nQuery: **{query}**\n\n"
+        markdown = f"# Semantic Search Results\n\n{warning_md}Query: **{query}**\n\n"
 
         if search_type in ("prompts", "all"):
             prompt_results = [r for r in results if r.get("type") == "prompt"]
@@ -3812,9 +3827,33 @@ async def vector_health() -> str:
         report += f"- **Embedding Dimension**: {health_status.get('embedding_dimension', 'Unknown')}\n"
         report += f"- **Similarity Threshold**: {health_status.get('similarity_threshold', 'Unknown')}\n"
 
+        # Embedding identity (#134)
+        if health_status.get("embed_provider"):
+            report += "\n## Embedding Fingerprint\n"
+            report += f"- **Provider**: {health_status.get('embed_provider')}\n"
+            report += f"- **Active Fingerprint**: {str(health_status.get('embed_fingerprint', ''))[:16]}\n"
+            for mem_type, state in (
+                health_status.get("embed_collections") or {}
+            ).items():
+                report += (
+                    f"- **{mem_type}**: {state.get('collection')} -> "
+                    f"{state.get('status')} ({state.get('detail', '')})"
+                )
+                if "points_not_tagged_active" in state:
+                    report += f"; points not tagged with the active fingerprint: {state['points_not_tagged_active']}"
+                report += "\n"
+
         # Recommendations
         report += "\n## Recommendations\n"
         recommendations = []
+
+        if health_status.get("embed_mismatch"):
+            recommendations.append(
+                "- ⚠️ **Embedding fingerprint mismatch in "
+                + ", ".join(health_status["embed_mismatch"])
+                + ": search scores are unreliable and deduplication is skipped. "
+                "Rebuild with `python -m src.cli.reindex`.**"
+            )
 
         if health_status.get("status") != "healthy":
             recommendations.append(

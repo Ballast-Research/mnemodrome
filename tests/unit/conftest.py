@@ -5,6 +5,18 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 
+def pytest_configure(config):
+    # #134: opt-in tests. CI has neither the model nor Ollama, so they skip.
+    config.addinivalue_line(
+        "markers",
+        "model: needs the pinned ONNX embedding model (set EMBED_TEST_MODEL_DIR)",
+    )
+    config.addinivalue_line(
+        "markers",
+        "ollama: needs a reachable Ollama (set PARITY_OLLAMA_URL); read-only",
+    )
+
+
 @pytest.fixture(autouse=True)
 def _reset_shared_sqlite_connection():
     """Forget the shared SQLite event-log connection after each test.

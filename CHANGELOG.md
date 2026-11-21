@@ -8,6 +8,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Embedding providers and fingerprints** (#134). New environment variables,
+  all `experimental`: `EMBED_PROVIDER=ollama|local-onnx|openai-compatible`
+  (default `ollama`, unchanged behaviour); for `local-onnx`: `EMBED_MODEL_DIR`,
+  `EMBED_MODEL_URL`, `EMBED_MODEL_DOWNLOAD`, `EMBED_MAX_TOKENS` (2048),
+  `EMBED_THREADS` (2); for `openai-compatible`: `EMBED_BASE_URL`, `EMBED_MODEL`,
+  `EMBED_API_KEY`. `local-onnx` runs the pinned `nomic-embed-text-v1.5` fp32
+  model in-process (new optional extra `onnx`: `onnxruntime==1.31.0`; included
+  in the Docker image). The model is downloaded once and verified by sha256;
+  a wrong hash fails closed. Offline path in INSTALLATION.md.
+- `python -m src.cli.reindex status|build|catch-up|swap|rollback`
+  (`experimental`): rebuilds collections with the configured embedder from the
+  stored payload text, resumable, then moves the alias; the old collection is
+  kept for rollback.
+- Stored data (additive, no manual step): Qdrant alias
+  `mnemodrome_<type>_live` per memory type; a `mnemodrome_embed_registry`
+  collection holding each collection's fingerprint, profile and canary
+  vectors; payload keys `embed_fp` and `embed_template` on every new point
+  (`embed_*` keys are reserved). New collections are named
+  `mnemodrome_<type>__<fingerprint8>`.
+- `vector_health` and the vector health check report the embed provider,
+  fingerprint and per-collection state (`ok`, `adopted`, `mismatch`,
+  `canary_drift`, `untagged`). `semantic_search` adds a warning line when a
+  searched collection does not match the active embedder.
+- `scripts/embedding_parity.py`: read-only P1/P2 parity check of the local
+  model against Ollama and stored vectors.
 - `scripts/release_check.py`: verifies a release tag (format `vX.Y.Z` or
   `vX.Y.ZrcN`, equals the `pyproject.toml` version, CHANGELOG heading, `uv.lock`
   version, legal next step after the existing tags; the next patch of the last
@@ -71,6 +96,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   are dropped instead of rendered empty.
 
 ### Changed
+- Qdrant is now read and written through the `mnemodrome_<type>_live`
+  aliases. On the first start after upgrade each alias is pointed at the
+  existing `mnemodrome_<type>` collection; data is not changed (#134).
+- Deduplication of learnings and procedures is skipped (the capture is
+  stored) when the collection's embedding fingerprint or canary does not match
+  the active embedder, instead of comparing scores across embedders (#134).
+- An Ollama fallback host (`OLLAMA_FALLBACK_URL`) that embeds the canary
+  texts differently from the primary is disabled at startup (#134).
 - Release workflow: the `latest` image tag is pushed only for final tags, never
   for an `rc` tag, and the GitHub release of an `rc` tag is marked as a
   pre-release.

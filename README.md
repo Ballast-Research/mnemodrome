@@ -205,7 +205,7 @@ Six layers, each optimized for a different cognitive function:
 | **Event Log** | SQLite | Session tracking, episodic memory, audit trail (embedded, no extra container) |
 | **Procedural** | Structured | Diagnostic procedures, step-by-step problem-solving patterns |
 | **Cache** | Redis | Hot path optimization, entity resolution (<1ms lookups) |
-| **Embeddings** | Ollama (user-provided) | Local vector embeddings, dimension probed at install time |
+| **Embeddings** | Ollama (user-provided), or in-process ONNX (`EMBED_PROVIDER=local-onnx`, experimental) | Local vector embeddings; every collection records the embedder fingerprint ([details](INSTALLATION.md#embedding-provider-experimental)) |
 
 ---
 
@@ -344,7 +344,7 @@ Each backing store can be swapped independently:
 | Cache | Redis | KeyDB, Valkey, Memcached |
 | Event Log | SQLite (embedded) | PostgreSQL (opt-in via `EVENT_LOG_BACKEND=postgres`, recommended for concurrent/multi-agent) |
 | File | Local Markdown | S3, any filesystem |
-| Embeddings | Ollama (nomic-embed-text) | OpenAI, Cohere |
+| Embeddings | Ollama (nomic-embed-text) | In-process ONNX `local-onnx` (experimental), any OpenAI-compatible `/v1/embeddings` endpoint |
 
 SQLite serializes writes and is ideal for a single user or a few agents. For simultaneous multi-agent or team deployments (multiple MCP clients writing events at once) switch to PostgreSQL for parallel writes without write-lock contention: set `EVENT_LOG_BACKEND=postgres` and start with `docker compose --profile postgres up`.
 

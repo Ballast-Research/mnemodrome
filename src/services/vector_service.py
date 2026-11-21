@@ -7,7 +7,13 @@ retrieval cascade: Vector → Redis → Neo4j → Markdown
 Constitutional Principle: Always-on observation
 Every prompt is automatically embedded and searched for similar past interactions.
 
-Embedding Provider: Ollama with nomic-embed-text (768 dimensions)
+Embedding providers (#134), chosen by EMBED_PROVIDER:
+- ollama (default): Ollama with nomic-embed-text (768 dimensions)
+- local-onnx (experimental): pinned nomic-embed-text-v1.5 fp32, in-process
+- openai-compatible (experimental): any /v1/embeddings endpoint
+
+Every collection carries a fingerprint and a canary (src/services/embedding).
+Code reads and writes through the `mnemodrome_<type>_live` aliases.
 """
 
 import asyncio
@@ -19,20 +25,26 @@ from typing import Any
 import httpx
 from loguru import logger
 
+from src.services.embedding import canary as _canary
+from src.services.embedding import registry as _registry
+from src.services.embedding import templates as _templates
+from src.services.embedding.model_store import default_model_dir
+from src.services.embedding.profile import ROLE_DOCUMENT, ROLE_QUERY, EmbedProfile
+
 try:
     from src import config as _config  # type: ignore[import]
 except ImportError:
     _config = None  # type: ignore[assignment]
 
+EMBED_PROVIDERS = ("ollama", "local-onnx", "openai-compatible")
+
 try:
     from qdrant_client import QdrantClient
     from qdrant_client.models import (
-        Distance,
         FieldCondition,
         Filter,
         MatchValue,
         PointStruct,
-        VectorParams,
     )
 
     QDRANT_AVAILABLE = True
@@ -46,7 +58,11 @@ class OllamaEmbedder:
     Handles embedding generation via Ollama API.
 
     Uses nomic-embed-text model (768 dimensions) for semantic search.
+    Legacy profile: no task prefixes, so `role` is accepted and ignored and
+    vectors stay byte-identical to earlier releases.
     """
+
+    is_remote = True
 
     def __init__(
         self,
@@ -157,12 +173,64 @@ class OllamaEmbedder:
             logger.error(f"Fallback Ollama also failed: {e}")
             return False
 
-    async def embed(self, text: str) -> list[float] | None:
+    @property
+    def profile(self) -> EmbedProfile:
+        return EmbedProfile(
+            provider="ollama",
+            model=self.model,
+            dim=self.dimension,
+            template_version=_templates.TEMPLATE_VERSION,
+        )
+
+    async def embed_batch(
+        self, texts: list[str], role: str = ROLE_QUERY
+    ) -> list[list[float] | None]:
+        return [await self.embed(t, role) for t in texts]
+
+    async def _embed_at(self, host: str, text: str) -> list[float] | None:
+        response = await self.client.post(
+            f"{host}/api/embeddings", json={"model": self.model, "prompt": text}
+        )
+        response.raise_for_status()
+        return response.json().get("embedding")
+
+    async def check_fallback_parity(self) -> bool | None:
+        """Embed the canary on primary and fallback; drop a fallback that differs.
+
+        A fallback on another Ollama version would write vectors with different
+        behaviour into the same collection (#134). Returns None when there is no
+        fallback or a host is unreachable, True when they agree, False when the
+        fallback was disabled.
+        """
+        if not self.fallback_host or self._using_fallback:
+            return None
+        try:
+            worst = 1.0
+            for text in _canary.CANARY_TEXTS:
+                a = await self._embed_at(self.host, text)
+                b = await self._embed_at(self.fallback_host, text)
+                if not a or not b:
+                    return None
+                worst = min(worst, _canary.cosine(a, b))
+        except Exception as e:
+            logger.warning(f"Fallback parity check skipped: {e}")
+            return None
+        if worst < _canary.REMOTE_TOLERANCE:
+            logger.error(
+                f"Ollama fallback {self.fallback_host} embeds differently from the "
+                f"primary (canary min cosine {worst:.4f}); fallback disabled."
+            )
+            self.fallback_host = None
+            return False
+        return True
+
+    async def embed(self, text: str, role: str = ROLE_QUERY) -> list[float] | None:
         """
         Generate embedding for text. Falls back to secondary host on failure.
 
         Args:
             text: Input text
+            role: "document" or "query" (ignored: the Ollama profile has no prefixes)
 
         Returns:
             Embedding vector or None if failed
@@ -230,7 +298,7 @@ class VectorService:
     Vector similarity search service for Mnemodrome semantic memory layer.
 
     Responsibilities:
-    - Generate embeddings for prompts, learnings, facts, and sessions via Ollama
+    - Generate embeddings for prompts, learnings, facts, and sessions (EMBED_PROVIDER)
     - Store embeddings in Qdrant with metadata linking to Neo4j UUIDs
     - Search for semantically similar content
     - Maintain similarity threshold for greenfield vs. existing topic detection
@@ -245,6 +313,7 @@ class VectorService:
         embedding_model: str = "nomic-embed-text",
         similarity_threshold: float = 0.45,
         enabled: bool = True,
+        embed_provider: str | None = None,
     ):
         """
         Initialize Vector Service.
@@ -270,17 +339,28 @@ class VectorService:
         self.embedding_model = embedding_model
         self.similarity_threshold = similarity_threshold
         self.enabled = enabled and QDRANT_AVAILABLE
+        self.embed_provider = (
+            (embed_provider or os.getenv("EMBED_PROVIDER", "ollama")).strip().lower()
+        )
+        if self.embed_provider not in EMBED_PROVIDERS:
+            raise ValueError(
+                f"EMBED_PROVIDER must be one of {', '.join(EMBED_PROVIDERS)}; "
+                f"got {self.embed_provider!r}"
+            )
 
         self.client: QdrantClient | None = None
-        self.embedder: OllamaEmbedder | None = None
+        self.embedder: Any = None
+        self.registry: _registry.CollectionRegistry | None = None
         self._initialized = False
 
-        # Collection names for different memory types
-        self.COLLECTION_PROMPTS = "mnemodrome_prompts"
-        self.COLLECTION_LEARNINGS = "mnemodrome_learnings"
-        self.COLLECTION_FACTS = "mnemodrome_facts"
-        self.COLLECTION_SESSIONS = "mnemodrome_sessions"
-        self.COLLECTION_PROCEDURES = "mnemodrome_procedures"
+        # Logical collection names: aliases to the physical collections (#134).
+        self.COLLECTION_PROMPTS = _registry.live_alias("prompts")
+        self.COLLECTION_LEARNINGS = _registry.live_alias("learnings")
+        self.COLLECTION_FACTS = _registry.live_alias("facts")
+        self.COLLECTION_SESSIONS = _registry.live_alias("sessions")
+        self.COLLECTION_PROCEDURES = _registry.live_alias("procedures")
+        # memory type -> {"alias", "collection", "status", "detail"}
+        self.collection_status: dict[str, dict[str, Any]] = {}
 
         if not self.enabled:
             logger.info("Vector layer disabled")
@@ -288,8 +368,99 @@ class VectorService:
 
         logger.info(
             f"Vector service configured (qdrant={self.qdrant_host}:{self.qdrant_port}, "
-            f"ollama={self.ollama_host}, fallback={self.ollama_fallback_host or 'none'}, "
+            f"provider={self.embed_provider}, ollama={self.ollama_host}, "
+            f"fallback={self.ollama_fallback_host or 'none'}, "
             f"model={self.embedding_model}, threshold={self.similarity_threshold})"
+        )
+
+    def _build_embedder(self):
+        """Create the embedder named by EMBED_PROVIDER (not yet initialized)."""
+        if self.embed_provider == "local-onnx":
+            from src.services.embedding.providers import LocalOnnxEmbedder
+
+            return LocalOnnxEmbedder(
+                model_dir=os.getenv("EMBED_MODEL_DIR") or default_model_dir(),
+                base_url=os.getenv("EMBED_MODEL_URL") or None,
+                max_tokens=int(os.getenv("EMBED_MAX_TOKENS", "2048")),
+                threads=int(os.getenv("EMBED_THREADS", "2")),
+                allow_download=os.getenv("EMBED_MODEL_DOWNLOAD", "true").lower()
+                == "true",
+            )
+        if self.embed_provider == "openai-compatible":
+            from src.services.embedding.providers import OpenAICompatibleEmbedder
+
+            base_url = os.getenv("EMBED_BASE_URL", "")
+            if not base_url:
+                raise ValueError(
+                    "EMBED_PROVIDER=openai-compatible needs EMBED_BASE_URL"
+                )
+            return OpenAICompatibleEmbedder(
+                base_url=base_url,
+                model=os.getenv("EMBED_MODEL", self.embedding_model),
+                api_key=os.getenv("EMBED_API_KEY") or None,
+            )
+        return OllamaEmbedder(
+            host=self.ollama_host,
+            model=self.embedding_model,
+            fallback_host=self.ollama_fallback_host or None,
+        )
+
+    def _active_profile(self) -> EmbedProfile | None:
+        profile = getattr(self.embedder, "profile", None)
+        return profile if isinstance(profile, EmbedProfile) else None
+
+    def _active_fingerprint(self) -> str:
+        profile = self._active_profile()
+        return profile.fingerprint if profile else ""
+
+    def _payload(
+        self, base: dict[str, Any], metadata: dict[str, Any] | None
+    ) -> dict[str, Any]:
+        """Build a point payload. `embed_*` keys are reserved: caller metadata
+        cannot overwrite the fingerprint tag (#134)."""
+        extra = {
+            k: v
+            for k, v in (metadata or {}).items()
+            if not str(k).startswith(_registry.RESERVED_PREFIX)
+        }
+        return {
+            **base,
+            **extra,
+            _registry.FP_KEY: self._active_fingerprint(),
+            _registry.TEMPLATE_KEY: _templates.TEMPLATE_VERSION,
+        }
+
+    def tag_payload(self, payload: dict[str, Any]) -> dict[str, Any]:
+        """Public helper for other writers (procedures)."""
+        return self._payload(payload, None)
+
+    def is_trusted(self, memory_type: str) -> bool:
+        """True when scores in this collection come from the active embedder.
+
+        Unknown state (no check ran, e.g. tests) counts as trusted so the
+        behaviour matches earlier releases.
+        """
+        state = self.collection_status.get(memory_type)
+        if state is None:
+            return True
+        return state.get("status") in _registry.TRUSTED or state.get("status") == (
+            _registry.STATUS_UNKNOWN
+        )
+
+    def trust_warning(self, memory_types: list[str] | tuple[str, ...]) -> str | None:
+        """Warning text for search output when any searched collection is not trusted."""
+        bad = [
+            f"{t} ({self.collection_status[t]['status']})"
+            for t in memory_types
+            if not self.is_trusted(t)
+        ]
+        if not bad:
+            return None
+        return (
+            "Embedding fingerprint mismatch in: "
+            + ", ".join(bad)
+            + ". Scores are not reliable until the collections are rebuilt "
+            "(python -m src.cli.reindex). See vector_health."
         )
 
     async def initialize(self):
@@ -301,19 +472,17 @@ class VectorService:
             return
 
         try:
-            # Initialize Ollama embedder
-            logger.info(f"Initializing Ollama embedder ({self.embedding_model})...")
-            self.embedder = OllamaEmbedder(
-                host=self.ollama_host,
-                model=self.embedding_model,
-                fallback_host=self.ollama_fallback_host or None,
-            )
+            logger.info(f"Initializing embedder (provider={self.embed_provider})...")
+            self.embedder = self._build_embedder()
 
             embedder_ready = await self.embedder.initialize()
             if not embedder_ready:
-                logger.error("Ollama embedder initialization failed")
+                logger.error(f"Embedder initialization failed ({self.embed_provider})")
                 self.enabled = False
                 return
+            fallback_check = getattr(self.embedder, "check_fallback_parity", None)
+            if self.embed_provider == "ollama" and fallback_check is not None:
+                await fallback_check()
 
             embedding_dim = self.embedder.dimension
 
@@ -364,71 +533,180 @@ class VectorService:
         return None
 
     async def _ensure_collections(self, dimension: int):
-        """Create collections if they don't exist.
+        """Resolve every `_live` alias, create missing collections, and check
+        each collection's dimension and embedding fingerprint (#134).
 
-        For existing collections, compare the stored vector dimension against
-        the active embedding dimension and log a clear error on mismatch.
-        Mnemodrome will NOT auto-delete or modify existing collections — operator
-        action is required (delete the mismatched collection(s) and restart so
-        they are recreated with the correct dimension, then re-ingest data).
+        Mnemodrome will NOT auto-delete or modify existing collections. A
+        fingerprint mismatch is reported in `collection_status` and in
+        `health_check()`; rebuild with `python -m src.cli.reindex`.
         """
-        collections_to_create = [
-            (self.COLLECTION_PROMPTS, "User prompts and queries"),
-            (self.COLLECTION_LEARNINGS, "Captured learnings and insights"),
-            (self.COLLECTION_FACTS, "Factual relationships from knowledge graph"),
-            (self.COLLECTION_SESSIONS, "Session summaries and syntheses"),
-            (
-                self.COLLECTION_PROCEDURES,
-                "Diagnostic procedures and problem-solving pathways",
-            ),
-        ]
+        self.registry = _registry.CollectionRegistry(self.client)
+        try:
+            await asyncio.to_thread(self.registry.ensure)
+        except Exception as e:
+            logger.warning(
+                f"Embedding registry unavailable, fingerprint checks off: {e}"
+            )
+            self.registry = None
 
-        existing_collections = await asyncio.to_thread(self.client.get_collections)
-        existing_names = {c.name for c in existing_collections.collections}
+        for memory_type in _templates.MEMORY_TYPES:
+            try:
+                await self._ensure_collection(memory_type, dimension)
+            except Exception as e:
+                logger.warning(f"Collection setup check failed for {memory_type}: {e}")
+                self.collection_status[memory_type] = {
+                    "alias": _registry.live_alias(memory_type),
+                    "collection": None,
+                    "status": _registry.STATUS_UNKNOWN,
+                    "detail": str(e),
+                }
 
-        for collection_name, description in collections_to_create:
-            if collection_name not in existing_names:
-                logger.info(f"Creating collection: {collection_name} ({description})")
-                await asyncio.to_thread(
-                    self.client.create_collection,
-                    collection_name=collection_name,
-                    vectors_config=VectorParams(
-                        size=dimension, distance=Distance.COSINE
-                    ),
-                )
+    async def _ensure_collection(self, memory_type: str, dimension: int):
+        """Resolve alias -> physical collection, create if needed, check fingerprint."""
+        alias = _registry.live_alias(memory_type)
+        reg = self.registry
+        if reg is None:
+            self.collection_status[memory_type] = {
+                "alias": alias,
+                "collection": None,
+                "status": _registry.STATUS_UNKNOWN,
+                "detail": "registry unavailable",
+            }
+            return
+
+        created = False
+        physical = await asyncio.to_thread(reg.alias_target, alias)
+        if physical is None:
+            legacy = _registry.legacy_name(memory_type)
+            if await asyncio.to_thread(reg.physical_exists, legacy):
+                physical = legacy
+                logger.info(f"Pointing alias {alias} at existing collection {legacy}")
             else:
-                # Collection already exists — check for a dimension mismatch that
-                # would silently corrupt all future similarity searches.
-                try:
-                    collection_info = await asyncio.to_thread(
-                        self.client.get_collection, collection_name
-                    )
-                    existing_dim = self._get_collection_dimension(collection_info)
-                    if existing_dim is not None and existing_dim != dimension:
-                        logger.error(
-                            f"EMBEDDING DIMENSION MISMATCH detected in collection "
-                            f"'{collection_name}': stored={existing_dim}D vs "
-                            f"active model={dimension}D (model: {self.embedding_model}, "
-                            f"EMBEDDING_DIM={os.getenv('EMBEDDING_DIM', '768')}). "
-                            f"This means the embedding model changed after the collection "
-                            f"was created. Similarity searches will produce wrong results. "
-                            f"TO FIX: delete the affected Qdrant collection(s), restart "
-                            f"Mnemodrome so they are recreated at the correct dimension, then "
-                            f"re-run scripts/bootstrap_vector_embeddings.py to re-embed "
-                            f"your existing data. Mnemodrome will NOT auto-delete collections."
-                        )
-                except Exception as check_err:
-                    logger.warning(
-                        f"Could not verify dimension for existing collection "
-                        f"'{collection_name}': {check_err}"
-                    )
+                profile = self._active_profile()
+                physical = (
+                    _registry.physical_name(memory_type, profile) if profile else legacy
+                )
+                if not await asyncio.to_thread(reg.physical_exists, physical):
+                    logger.info(f"Creating collection: {physical}")
+                    await asyncio.to_thread(reg.create_physical, physical, dimension)
+                    created = True
+            await asyncio.to_thread(reg.point_alias, alias, physical)
 
-    async def embed_text(self, text: str) -> list[float]:
+        await self._warn_on_dimension_mismatch(physical, dimension)
+        status, detail = await self._check_fingerprint(memory_type, physical, created)
+        self.collection_status[memory_type] = {
+            "alias": alias,
+            "collection": physical,
+            "status": status,
+            "detail": detail,
+        }
+        level = "info" if status in _registry.TRUSTED else "error"
+        getattr(logger, level)(
+            f"Embedding check {memory_type}: {physical} -> {status} ({detail})"
+        )
+
+    async def _embed_canary(self) -> list[list[float]] | None:
+        vectors = await self.embedder.embed_batch(
+            list(_canary.CANARY_TEXTS), ROLE_DOCUMENT
+        )
+        if not vectors or any(not v for v in vectors):
+            return None
+        return [list(map(float, v)) for v in vectors]
+
+    async def _check_fingerprint(
+        self, memory_type: str, physical: str, created: bool
+    ) -> tuple[str, str]:
+        reg = self.registry
+        profile = self._active_profile()
+        if reg is None or profile is None:
+            return _registry.STATUS_UNKNOWN, "no registry or profile"
+        record = await asyncio.to_thread(reg.get, physical)
+        if record is None:
+            count = (
+                await asyncio.to_thread(
+                    self.client.count, collection_name=physical, exact=True
+                )
+            ).count
+            # Ollama wrote every legacy vector, so it may adopt them; any other
+            # provider can only adopt an empty collection.
+            if count and self.embed_provider != "ollama":
+                return (
+                    _registry.STATUS_UNTAGGED,
+                    f"{count} legacy points not made by {self.embed_provider}",
+                )
+            canary_vectors = await self._embed_canary()
+            if canary_vectors is None:
+                return _registry.STATUS_UNKNOWN, "canary embedding failed"
+            adopted = bool(count) and not created
+            await asyncio.to_thread(
+                reg.register, physical, memory_type, profile, canary_vectors, adopted
+            )
+            await asyncio.to_thread(reg.ensure_fp_index, physical)
+            return (
+                _registry.STATUS_ADOPTED if adopted else _registry.STATUS_OK,
+                f"registered fingerprint {profile.short_fingerprint}",
+            )
+        if record.get("fingerprint") != profile.fingerprint:
+            return (
+                _registry.STATUS_MISMATCH,
+                f"collection {str(record.get('fingerprint'))[:8]} != active "
+                f"{profile.short_fingerprint} ({self.embed_provider})",
+            )
+        current = await self._embed_canary()
+        if current is None:
+            return _registry.STATUS_UNKNOWN, "canary embedding failed"
+        tolerance = (
+            _canary.REMOTE_TOLERANCE
+            if getattr(self.embedder, "is_remote", True)
+            else _canary.LOCAL_TOLERANCE
+        )
+        ok, worst = _canary.compare(
+            record.get("canary_vectors") or [], current, tolerance
+        )
+        status = (
+            (_registry.STATUS_ADOPTED if record.get("adopted") else _registry.STATUS_OK)
+            if ok
+            else _registry.STATUS_CANARY_DRIFT
+        )
+        return status, f"canary min cosine {worst:.6f} (tolerance {tolerance})"
+
+    async def _warn_on_dimension_mismatch(self, collection_name: str, dimension: int):
+        """Log a clear error when a collection's dimension differs from the model.
+
+        Mnemodrome will NOT auto-delete or modify collections; rebuild them with
+        `python -m src.cli.reindex`.
         """
-        Generate embedding vector for text using Ollama.
+        try:
+            collection_info = await asyncio.to_thread(
+                self.client.get_collection, collection_name
+            )
+            existing_dim = self._get_collection_dimension(collection_info)
+            if existing_dim is not None and existing_dim != dimension:
+                logger.error(
+                    f"EMBEDDING DIMENSION MISMATCH detected in collection "
+                    f"'{collection_name}': stored={existing_dim}D vs "
+                    f"active model={dimension}D (provider: {self.embed_provider}, "
+                    f"model: {self.embedding_model}, "
+                    f"EMBEDDING_DIM={os.getenv('EMBEDDING_DIM', '768')}). "
+                    f"Similarity searches will produce wrong results. "
+                    f"TO FIX: rebuild the collection with the active embedder "
+                    f"(python -m src.cli.reindex). Mnemodrome will NOT auto-delete "
+                    f"collections."
+                )
+        except Exception as check_err:
+            logger.warning(
+                f"Could not verify dimension for existing collection "
+                f"'{collection_name}': {check_err}"
+            )
+
+    async def embed_text(self, text: str, role: str = ROLE_QUERY) -> list[float]:
+        """
+        Generate embedding vector for text with the active embedder.
 
         Args:
             text: Input text to embed
+            role: "query" (search input, default) or "document" (stored text).
+                Only providers with task prefixes (local-onnx) use it.
 
         Returns:
             Embedding vector as list of floats
@@ -443,7 +721,7 @@ class VectorService:
             return []
 
         try:
-            embedding = await self.embedder.embed(text)
+            embedding = await self.embedder.embed(text, role=role)
             if embedding and len(embedding) != self.embedder.dimension:
                 logger.error(
                     f"Embedding dimension mismatch: got {len(embedding)}, "
@@ -639,12 +917,14 @@ class VectorService:
                     point_id = uuid.uuid5(uuid.NAMESPACE_DNS, prompt_id)
 
             # Prepare payload
-            payload = {
-                "text": text,
-                "timestamp": datetime.utcnow().isoformat(),
-                "neo4j_uuid": neo4j_uuid,
-                **(metadata or {}),
-            }
+            payload = self._payload(
+                {
+                    "text": text,
+                    "timestamp": datetime.utcnow().isoformat(),
+                    "neo4j_uuid": neo4j_uuid,
+                },
+                metadata,
+            )
 
             # Store in Qdrant using pre-computed embedding
             await asyncio.to_thread(
@@ -770,8 +1050,9 @@ class VectorService:
             return False
 
         try:
-            # Generate embedding
-            embedding = await self.embed_text(text)
+            # Prompts are compared with prompts: one role on both sides, so a
+            # vector made for search can be stored as is.
+            embedding = await self.embed_text(_templates.prompt_text(text), ROLE_QUERY)
             if not embedding:
                 return False
 
@@ -789,12 +1070,14 @@ class VectorService:
                     point_id = uuid.uuid5(uuid.NAMESPACE_DNS, prompt_id)
 
             # Prepare payload
-            payload = {
-                "text": text,
-                "timestamp": datetime.utcnow().isoformat(),
-                "neo4j_uuid": neo4j_uuid,
-                **(metadata or {}),
-            }
+            payload = self._payload(
+                {
+                    "text": text,
+                    "timestamp": datetime.utcnow().isoformat(),
+                    "neo4j_uuid": neo4j_uuid,
+                },
+                metadata,
+            )
 
             # Store in Qdrant
             await asyncio.to_thread(
@@ -838,8 +1121,8 @@ class VectorService:
 
         try:
             # Combine title and content for richer embedding
-            combined_text = f"{title}\n\n{content}"
-            embedding = await self.embed_text(combined_text)
+            combined_text = _templates.learning_text(title, content)
+            embedding = await self.embed_text(combined_text, ROLE_DOCUMENT)
             if not embedding:
                 return False
 
@@ -852,15 +1135,17 @@ class VectorService:
                 except ValueError:
                     point_id = uuid.uuid5(uuid.NAMESPACE_DNS, learning_uuid)
 
-            payload = {
-                "title": title,
-                "content": content,
-                "category": category,
-                "timestamp": datetime.utcnow().isoformat(),
-                "neo4j_uuid": str(point_id),
-                "type": "learning",
-                **(metadata or {}),
-            }
+            payload = self._payload(
+                {
+                    "title": title,
+                    "content": content,
+                    "category": category,
+                    "timestamp": datetime.utcnow().isoformat(),
+                    "neo4j_uuid": str(point_id),
+                    "type": "learning",
+                },
+                metadata,
+            )
 
             await asyncio.to_thread(
                 self.client.upsert,
@@ -955,14 +1240,8 @@ class VectorService:
 
         try:
             # Combine summary and key insights for richer embedding
-            insights_text = ""
-            if key_insights:
-                insights_text = "\n\nKey Insights:\n" + "\n".join(
-                    f"- {insight}" for insight in key_insights
-                )
-
-            combined_text = f"{summary}{insights_text}"
-            embedding = await self.embed_text(combined_text)
+            combined_text = _templates.session_text(summary, key_insights)
+            embedding = await self.embed_text(combined_text, ROLE_DOCUMENT)
             if not embedding:
                 return False
 
@@ -975,14 +1254,16 @@ class VectorService:
                 except ValueError:
                     point_id = uuid.uuid5(uuid.NAMESPACE_DNS, session_uuid)
 
-            payload = {
-                "summary": summary,
-                "key_insights": key_insights or [],
-                "timestamp": datetime.utcnow().isoformat(),
-                "neo4j_uuid": str(point_id),
-                "type": "session",
-                **(metadata or {}),
-            }
+            payload = self._payload(
+                {
+                    "summary": summary,
+                    "key_insights": key_insights or [],
+                    "timestamp": datetime.utcnow().isoformat(),
+                    "neo4j_uuid": str(point_id),
+                    "type": "session",
+                },
+                metadata,
+            )
 
             await asyncio.to_thread(
                 self.client.upsert,
@@ -1027,11 +1308,8 @@ class VectorService:
 
         try:
             # Combine fact components for embedding
-            embed_text = f"{entity1} {relation} {entity2}"
-            if context:
-                embed_text += f"\nContext: {context}"
-
-            embedding = await self.embed_text(embed_text)
+            embed_text = _templates.fact_text(entity1, relation, entity2, context)
+            embedding = await self.embed_text(embed_text, ROLE_DOCUMENT)
             if not embedding:
                 return False
 
@@ -1044,16 +1322,18 @@ class VectorService:
                 except ValueError:
                     point_id = uuid.uuid5(uuid.NAMESPACE_DNS, fact_uuid)
 
-            payload = {
-                "entity1": entity1,
-                "relation": relation,
-                "entity2": entity2,
-                "context": context,
-                "timestamp": datetime.utcnow().isoformat(),
-                "neo4j_uuid": str(point_id),
-                "type": "fact",
-                **(metadata or {}),
-            }
+            payload = self._payload(
+                {
+                    "entity1": entity1,
+                    "relation": relation,
+                    "entity2": entity2,
+                    "context": context,
+                    "timestamp": datetime.utcnow().isoformat(),
+                    "neo4j_uuid": str(point_id),
+                    "type": "fact",
+                },
+                metadata,
+            )
 
             await asyncio.to_thread(
                 self.client.upsert,
@@ -1076,6 +1356,7 @@ class VectorService:
         limit: int = 5,
         category: str | None = None,
         min_score: float | None = None,
+        role: str = ROLE_QUERY,
     ) -> list[dict[str, Any]]:
         """
         Search for semantically similar learnings.
@@ -1085,6 +1366,7 @@ class VectorService:
             limit: Maximum results
             category: Optional category filter
             min_score: Minimum similarity score
+            role: "query" (default) or "document" (dedup: stored text vs stored text)
 
         Returns:
             List of similar learnings with scores
@@ -1095,7 +1377,7 @@ class VectorService:
         min_score = min_score or self.similarity_threshold
 
         try:
-            query_vector = await self.embed_text(query_text)
+            query_vector = await self.embed_text(query_text, role)
             if not query_vector:
                 return []
 
@@ -1373,6 +1655,7 @@ class VectorService:
                 "similarity_threshold": self.similarity_threshold,
                 "collections": collection_names,
                 "stats": stats,
+                **(await self._embedding_health()),
             }
 
         except Exception as e:
@@ -1383,6 +1666,41 @@ class VectorService:
                 "initialized": self._initialized,
                 "error": str(e),
             }
+
+    async def _embedding_health(self) -> dict[str, Any]:
+        """Embedding identity and per-collection fingerprint state (#134)."""
+        fingerprint = self._active_fingerprint()
+        per_type: dict[str, Any] = {}
+        for memory_type, state in self.collection_status.items():
+            entry = dict(state)
+            physical = state.get("collection")
+            if physical and fingerprint and state.get("status") in _registry.TRUSTED:
+                try:
+                    stale = await asyncio.to_thread(
+                        self.client.count,
+                        collection_name=physical,
+                        count_filter=Filter(
+                            must_not=[
+                                FieldCondition(
+                                    key=_registry.FP_KEY,
+                                    match=MatchValue(value=fingerprint),
+                                )
+                            ]
+                        ),
+                        exact=True,
+                    )
+                    entry["points_not_tagged_active"] = stale.count
+                except Exception as e:
+                    entry["points_not_tagged_active"] = f"unknown ({e})"
+            per_type[memory_type] = entry
+        mismatched = [t for t in self.collection_status if not self.is_trusted(t)]
+        return {
+            "embed_provider": self.embed_provider,
+            "embed_fingerprint": fingerprint,
+            "embed_profile": (p.to_dict() if (p := self._active_profile()) else None),
+            "embed_collections": per_type,
+            "embed_mismatch": mismatched,
+        }
 
     def is_enabled(self) -> bool:
         """Check if vector service is enabled and initialized."""
@@ -1496,6 +1814,7 @@ def create_vector_service() -> VectorService:
     loop: the embedder's httpx.AsyncClient is bound to the loop that made it.
     """
     enabled = os.getenv("QDRANT_ENABLED", "true").lower() == "true"
+    embed_provider = os.getenv("EMBED_PROVIDER", "ollama")
     qdrant_host = os.getenv("QDRANT_HOST", "localhost")
     qdrant_port = int(os.getenv("QDRANT_PORT", "6333"))
     ollama_host = os.getenv(
@@ -1513,6 +1832,7 @@ def create_vector_service() -> VectorService:
         embedding_model=embedding_model,
         similarity_threshold=threshold,
         enabled=enabled,
+        embed_provider=embed_provider,
     )
 
 

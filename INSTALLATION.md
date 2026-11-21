@@ -15,9 +15,10 @@ to bring your own LLM backend. Ollama is the recommended local option.
 2. [Installer flags reference](#installer-flags-reference)
 3. [Manual Installation](#manual-installation)
 4. [LLM Provider Configuration](#llm-provider-configuration)
-5. [MCP Client Setup](#mcp-client-setup)
-6. [Verification](#verification)
-7. [Troubleshooting](#troubleshooting)
+5. [Embedding Provider (experimental)](#embedding-provider-experimental)
+6. [MCP Client Setup](#mcp-client-setup)
+7. [Verification](#verification)
+8. [Troubleshooting](#troubleshooting)
 
 ---
 
@@ -413,6 +414,71 @@ ollama list
 ollama pull gemma3:4b-it-qat  # Quantized, fast, good quality
 ollama pull mistral:7b  # Fast and capable
 ```
+
+---
+
+## Embedding Provider (experimental)
+
+Mnemodrome turns memories into vectors with an embedding model. Which engine
+runs the model is set by `EMBED_PROVIDER`:
+
+| Value | What runs | Notes |
+|---|---|---|
+| `ollama` (default) | `nomic-embed-text` in your Ollama | Vectors depend on the Ollama version. Ollama 0.30.0 changed how this model handles upper case, so an Ollama upgrade can silently change search results. |
+| `local-onnx` | pinned `nomic-embed-text-v1.5` (fp32) inside Mnemodrome, on CPU | No Ollama needed for memory. Upgrading Ollama never changes stored vectors. About 0.6 to 1.5 GB more RAM. Needs the `onnx` extra (included in the Docker image). |
+| `openai-compatible` | any `/v1/embeddings` endpoint (`EMBED_BASE_URL`, `EMBED_MODEL`, `EMBED_API_KEY`) | Mnemodrome cannot pin a remote engine; the startup canary detects changes. |
+
+Every Qdrant collection records the fingerprint of the embedder that built it
+(model files, tokenizer, prefixes, max length, template version) and a set of
+canary vectors. At startup Mnemodrome compares both. On a mismatch, search
+results carry a warning, deduplication is skipped (captures are still
+stored), and `vector_health` says which collections to rebuild.
+
+### Switching provider on existing data
+
+Changing `EMBED_PROVIDER` does not convert stored vectors. Rebuild them with
+the new provider; the old collections stay untouched until you delete them:
+
+```bash
+# 1. Build new collections with the provider you switch TO (resumable).
+EMBED_PROVIDER=local-onnx uv run --extra onnx python -m src.cli.reindex build
+# 2. Move the aliases (runs a catch-up first), then restart with the new provider.
+EMBED_PROVIDER=local-onnx uv run --extra onnx python -m src.cli.reindex swap
+# 3. After the restart, re-embed anything written in between.
+EMBED_PROVIDER=local-onnx uv run --extra onnx python -m src.cli.reindex catch-up
+# Undo at any time: point the aliases back and restart with the old provider.
+EMBED_PROVIDER=local-onnx uv run --extra onnx python -m src.cli.reindex rollback
+```
+
+`python -m src.cli.reindex status` shows, per memory type, the live and target
+collections and their point counts. Use `build --dry-run` to count first.
+Thresholds (`QDRANT_SIMILARITY_THRESHOLD`, `DEDUP_*`) were tuned for the
+Ollama vectors; check them after a switch.
+
+### Offline embedding model
+
+With `EMBED_PROVIDER=local-onnx`, the first start downloads two files into
+`EMBED_MODEL_DIR` (default `~/.cache/mnemodrome/models`; Docker:
+`$DATA_ROOT/mnemodrome/models`) and checks their sha256. A file with another
+hash is never loaded: startup fails and says which file is wrong.
+
+For a host without internet access, place the files yourself and set
+`EMBED_MODEL_DOWNLOAD=false`. The two files are `model.onnx` (fp32, about
+547 MB) and `vocab.txt` from Hugging Face `nomic-ai/nomic-embed-text-v1.5`
+at a pinned revision. The pinned URLs, sizes and sha256 values live in
+`src/services/embedding/model_store.py`; print, fetch and verify them on any
+machine with a checkout:
+
+```bash
+uv run python -m src.services.embedding.model_store                 # URL, size, sha256 per file
+uv run python -m src.services.embedding.model_store --fetch ./models # download and verify
+uv run python -m src.services.embedding.model_store --verify ./models
+```
+
+Copy the folder to the offline host by any means. To download from your own
+mirror instead of Hugging Face, set `EMBED_MODEL_URL` to a base URL that serves
+`model.onnx` and `vocab.txt` (flat names); the same hashes apply. The model is
+Apache-2.0 licensed.
 
 ---
 
