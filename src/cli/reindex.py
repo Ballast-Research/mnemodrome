@@ -14,6 +14,7 @@ Usage:
     python -m src.cli.reindex catch-up               # copy new writes, fix stale tags
     python -m src.cli.reindex swap                   # catch-up, then move the alias
     python -m src.cli.reindex rollback               # alias back to the old collection
+    python -m src.cli.reindex build --rebuild-on-drift  # same fingerprint, drifted canary
 
 Build is resumable: points already in the target with the target fingerprint
 are skipped. Run it with the embedder you want to switch TO, for example
@@ -30,6 +31,7 @@ import argparse
 import asyncio
 import json
 import os
+import re
 import sys
 from dataclasses import asdict, dataclass, field
 from typing import Any
@@ -66,19 +68,53 @@ class ReindexError(RuntimeError):
 class Reindexer:
     """Collection rebuild logic. `client` is a sync QdrantClient."""
 
-    def __init__(self, client, embedder, batch_size: int = 32, echo=print):
+    def __init__(
+        self,
+        client,
+        embedder,
+        batch_size: int = 32,
+        echo=print,
+        rebuild_on_drift: bool = False,
+    ):
         self.client = client
         self.embedder = embedder
         self.batch_size = max(1, batch_size)
         self.registry = _registry.CollectionRegistry(client)
         self.echo = echo
+        self.rebuild_on_drift = rebuild_on_drift
 
     @property
     def profile(self):
         return self.embedder.profile
 
+    def _generations(self, memory_type: str) -> list[int]:
+        """Numbers N of existing `<base>_rN` rebuilds of this fingerprint."""
+        base = _registry.physical_name(memory_type, self.profile)
+        pattern = re.compile(re.escape(base) + r"_r(\d+)")
+        names = {c.name for c in self.client.get_collections().collections}
+        return sorted(
+            int(m.group(1)) for n in names if (m := pattern.fullmatch(n)) is not None
+        )
+
     def target_name(self, memory_type: str) -> str:
-        return _registry.physical_name(memory_type, self.profile)
+        """Newest collection for the configured fingerprint.
+
+        Normally `mnemodrome_<type>__<fp8>`. A same-fingerprint rebuild after
+        canary drift (`--rebuild-on-drift`) adds generations `..._r1`, `_r2`.
+        """
+        base = _registry.physical_name(memory_type, self.profile)
+        generations = self._generations(memory_type)
+        return f"{base}_r{generations[-1]}" if generations else base
+
+    def _build_target(self, memory_type: str, live: str) -> str:
+        latest = self.target_name(memory_type)
+        if latest != live or not self.rebuild_on_drift:
+            return latest
+        # Same fingerprint, but the embedder output drifted: re-embed into a
+        # new generation; the drifted collection stays as the rollback target.
+        base = _registry.physical_name(memory_type, self.profile)
+        generations = self._generations(memory_type)
+        return f"{base}_r{(generations[-1] if generations else 0) + 1}"
 
     def live(self, memory_type: str) -> str:
         target = self.registry.alias_target(_registry.live_alias(memory_type))
@@ -115,7 +151,7 @@ class Reindexer:
         return info
 
     async def _ensure_target(self, memory_type: str, source: str, dry_run: bool) -> str:
-        target = self.target_name(memory_type)
+        target = self._build_target(memory_type, source)
         if target == source:
             return target
         record = self.registry.get(target)
@@ -294,7 +330,11 @@ class Reindexer:
         source = self.live(memory_type)
         target = await self._ensure_target(memory_type, source, dry_run)
         if target == source:
-            self.echo(f"  {memory_type}: live collection already has this fingerprint")
+            self.echo(
+                f"  {memory_type}: live collection already has this fingerprint. "
+                "If vector_health reports canary_drift, rebuild it with "
+                "--rebuild-on-drift."
+            )
             return counters
         await self._copy_missing(memory_type, source, target, counters, dry_run)
         return counters
@@ -346,7 +386,7 @@ class Reindexer:
         return previous
 
 
-async def _make_reindexer(batch: int) -> Reindexer:
+async def _make_reindexer(batch: int, rebuild_on_drift: bool = False) -> Reindexer:
     from qdrant_client import QdrantClient  # noqa: PLC0415
 
     from src.services.vector_service import create_vector_service  # noqa: PLC0415
@@ -359,12 +399,14 @@ async def _make_reindexer(batch: int) -> Reindexer:
         host=os.getenv("QDRANT_HOST", "localhost"),
         port=int(os.getenv("QDRANT_PORT", "6333")),
     )
-    return Reindexer(client, embedder, batch_size=batch)
+    return Reindexer(
+        client, embedder, batch_size=batch, rebuild_on_drift=rebuild_on_drift
+    )
 
 
 async def _run(args: argparse.Namespace) -> int:
     types = args.type or list(_templates.MEMORY_TYPES)
-    reindexer = await _make_reindexer(args.batch)
+    reindexer = await _make_reindexer(args.batch, args.rebuild_on_drift)
     print(
         f"embedder: {reindexer.profile.provider} {reindexer.profile.model} "
         f"fingerprint {reindexer.profile.short_fingerprint}"
@@ -422,6 +464,12 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--dry-run", action="store_true", help="build: count only")
     parser.add_argument(
         "--force", action="store_true", help="swap even if the counts differ"
+    )
+    parser.add_argument(
+        "--rebuild-on-drift",
+        action="store_true",
+        help="build: re-embed into a new generation (<collection>_rN) even when "
+        "the live collection has the same fingerprint (fixes canary_drift)",
     )
     args = parser.parse_args(argv)
     return asyncio.run(_run(args))

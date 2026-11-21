@@ -430,11 +430,20 @@ runs the model is set by `EMBED_PROVIDER`:
 
 Every Qdrant collection records the fingerprint of the embedder that built it
 (model files, tokenizer, prefixes, max length, template version) and a set of
-canary vectors. At startup Mnemodrome compares both. On a mismatch, search
-results carry a warning, deduplication is skipped, new vectors are not
-written into that collection (the capture itself is still stored in the
-graph and files; only its vector is held back), and `vector_health` says
-which collections to rebuild and how many writes were blocked.
+canary vectors. At startup Mnemodrome compares both.
+
+- Fingerprint mismatch (another provider or model built the collection):
+  search results carry a warning, deduplication is skipped, and new vectors
+  are not written into that collection (the capture itself is still stored
+  in the graph and files; only its vector is held back). The same applies
+  while the check cannot run; it is retried at most every 30 seconds.
+- Canary drift (same fingerprint, but the engine's output moved, for example
+  after an Ollama upgrade): search warns and deduplication is skipped, but
+  writes continue. Repair with `python -m src.cli.reindex build
+  --rebuild-on-drift`, then `swap`.
+
+`vector_health` says which collections to rebuild and how many writes were
+blocked.
 
 ### Switching provider on existing data
 

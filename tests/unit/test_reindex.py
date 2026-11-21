@@ -167,3 +167,47 @@ async def test_status(client):
     info = r.status("facts")
     assert info["live"] == LEGACY and info["live_fingerprint"] == "untagged"
     assert info["live_points"] == 8 and info["target_exists"] is False
+
+
+@pytest.mark.asyncio
+async def test_rebuild_on_drift_re_embeds_same_fingerprint(client):
+    """Delta review D2: canary drift with a matching fingerprint is repairable."""
+    old = _new_embedder()
+    r_old = _reindexer(client, old)
+    await r_old.build("facts")
+    await r_old.swap("facts")
+    base = r_old.target_name("facts")
+    reg = registry.CollectionRegistry(client)
+    assert reg.alias_target(ALIAS) == base
+
+    drifted = FakeEmbedder(
+        provider="local-onnx",
+        model="nomic",
+        is_remote=False,
+        prefixes=("d: ", "q: "),
+        variant="engine-changed",
+    )
+    assert drifted.profile.fingerprint == old.profile.fingerprint
+
+    plain = await _reindexer(client, drifted).build("facts")
+    assert plain.embedded == 0  # no flag: nothing to do, hint printed
+
+    r = Reindexer(
+        client, drifted, batch_size=3, echo=lambda *_: None, rebuild_on_drift=True
+    )
+    counters = await r.build("facts")
+    target = f"{base}_r1"
+    assert counters.embedded == 7
+    point = client.retrieve(target, ids=[3], with_vectors=True)[0]
+    assert cosine(
+        point.vector, drifted.vector("E3 KNOWS F3", "document")
+    ) == pytest.approx(1.0, abs=1e-6)
+    assert reg.get(target)["built_from"] == base
+
+    resumed = await r.build("facts")  # resumable: same generation
+    assert resumed.embedded == 0 and resumed.skipped_current == 7
+
+    await _reindexer(client, drifted).swap("facts")
+    assert reg.alias_target(ALIAS) == target
+    _reindexer(client, drifted).rollback("facts")
+    assert reg.alias_target(ALIAS) == base

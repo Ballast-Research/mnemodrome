@@ -369,6 +369,7 @@ class VectorService:
         self._last_recheck: dict[str, float] = {}
         self._canary_cache: list[list[float]] | None = None
         self._registered_fp: dict[str, str | None] = {}
+        self._dimension: int = 0
 
         if not self.enabled:
             logger.info("Vector layer disabled")
@@ -458,48 +459,61 @@ class VectorService:
     async def ensure_trusted(self, memory_type: str) -> bool:
         """is_trusted(), re-running the check first when the state is unknown.
 
-        The re-check is rate-limited (RECHECK_INTERVAL_S) so a broken embedder
-        does not add a canary run to every capture.
+        Covers both failure points: the fingerprint/canary check, and the
+        collection setup itself (registry or alias could not be resolved at
+        start). The re-check is rate-limited (RECHECK_INTERVAL_S) so a broken
+        embedder or Qdrant does not add work to every capture.
         """
         state = self.collection_status.get(memory_type)
-        if (
-            state is not None
-            and state.get("status") == _registry.STATUS_UNKNOWN
-            and state.get("collection")
-        ):
-            now = time.monotonic()
-            if (
-                now - self._last_recheck.get(memory_type, 0.0)
-                >= self.RECHECK_INTERVAL_S
-            ):
-                self._last_recheck[memory_type] = now
-                try:
-                    status, detail = await self._check_fingerprint(
-                        memory_type, state["collection"], created=False
-                    )
-                    state.update(
-                        status=status,
-                        detail=detail,
-                        fingerprint=self._registered_fp.get(state["collection"]),
-                    )
-                    logger.info(
-                        f"Embedding re-check {memory_type}: {status} ({detail})"
-                    )
-                except Exception as e:
-                    logger.warning(f"Embedding re-check failed for {memory_type}: {e}")
+        if state is None or state.get("status") != _registry.STATUS_UNKNOWN:
+            return self.is_trusted(memory_type)
+        now = time.monotonic()
+        if now - self._last_recheck.get(memory_type, 0.0) < self.RECHECK_INTERVAL_S:
+            return self.is_trusted(memory_type)
+        self._last_recheck[memory_type] = now
+        try:
+            if state.get("collection"):
+                status, detail = await self._check_fingerprint(
+                    memory_type, state["collection"], created=False
+                )
+                state.update(
+                    status=status,
+                    detail=detail,
+                    fingerprint=self._registered_fp.get(state["collection"]),
+                )
+            else:
+                # Setup never finished for this type: run it again.
+                if self.registry is None and self.client is not None:
+                    registry = _registry.CollectionRegistry(self.client)
+                    await asyncio.to_thread(registry.ensure)
+                    self.registry = registry
+                await self._ensure_collection(memory_type, self._dimension)
+            logger.info(
+                f"Embedding re-check {memory_type}: "
+                f"{self.collection_status[memory_type]['status']}"
+            )
+        except Exception as e:
+            logger.warning(f"Embedding re-check failed for {memory_type}: {e}")
         return self.is_trusted(memory_type)
 
     async def _writable(self, memory_type: str) -> bool:
         """Block vector writes into a collection built by another embedder (#134).
 
-        Writing anyway would mix two embedders in one collection. The capture
-        itself (graph, files) is unaffected; only its vector is not stored.
-        Rebuild with `python -m src.cli.reindex` to clear the block.
+        Blocked: fingerprint `mismatch` and `untagged` (writing would mix two
+        embedders in one collection), and `unknown` only while the re-check
+        keeps failing. Not blocked: `canary_drift` (same fingerprint; warned
+        and reported). The capture itself (graph, files) is unaffected; only
+        its vector is not stored. Rebuild with `python -m src.cli.reindex`.
         """
         if await self.ensure_trusted(memory_type):
             return True
-        self.blocked_writes[memory_type] = self.blocked_writes.get(memory_type, 0) + 1
         status = self.collection_status.get(memory_type, {}).get("status")
+        if status == _registry.STATUS_CANARY_DRIFT:
+            # Same fingerprint, but the embedder's output moved (for example an
+            # Ollama upgrade). Warn and report; never block: that would change
+            # the default path on upgrade. Repair: reindex build --rebuild-on-drift.
+            return True
+        self.blocked_writes[memory_type] = self.blocked_writes.get(memory_type, 0) + 1
         logger.error(
             f"Vector write blocked for {memory_type}: collection status '{status}' "
             f"does not match the active embedder ({self.embed_provider}). "
@@ -605,6 +619,7 @@ class VectorService:
         """
         self.registry = _registry.CollectionRegistry(self.client)
         self._canary_cache = None
+        self._dimension = dimension
         logger.info(
             f"Unicode data version for the tokenizer: {unicodedata.unidata_version}"
         )

@@ -275,3 +275,80 @@ async def test_registry_records_unicode_version(client):
         f"mnemodrome_facts__{emb.profile.short_fingerprint}"
     )
     assert record["unicode_version"] == unicodedata.unidata_version
+
+
+@pytest.mark.asyncio
+async def test_canary_drift_warns_but_never_blocks_writes(client):
+    """Delta review D2: an Ollama upgrade must not switch off vector writes."""
+    await _service(client, FakeEmbedder())
+    emb = FakeEmbedder(variant="ollama-0.30")
+    svc = await _service(client, emb)
+    assert svc.collection_status["facts"]["status"] == registry.STATUS_CANARY_DRIFT
+    point_id = await svc.store_fact_embedding(
+        "A", "R", "B", "", "2d2e3f4a-5b6c-4d7e-8f90-a1b2c3d4e5f6"
+    )
+    assert point_id
+    assert svc.blocked_writes.get("facts", 0) == 0
+    assert "canary_drift" in svc.trust_warning(["facts"])  # still warned
+    assert not svc.is_trusted("facts")  # dedup still fails safe
+
+
+@pytest.mark.asyncio
+async def test_fingerprint_mismatch_blocks_writes(client):
+    await _service(client, FakeEmbedder(model="model-a"))
+    svc = await _service(client, FakeEmbedder(model="model-b"))
+    assert svc.collection_status["facts"]["status"] == registry.STATUS_MISMATCH
+    result = await svc.store_fact_embedding(
+        "A", "R", "B", "", "3e3f4a5b-6c7d-4e8f-9a0b-b1c2d3e4f5a6"
+    )
+    assert result is False
+    assert svc.blocked_writes["facts"] == 1
+
+
+@pytest.mark.asyncio
+async def test_failed_setup_recovers_on_next_write_with_rate_limit(client, monkeypatch):
+    """Delta review D1: setup that left no collection is re-run lazily."""
+    calls = {"n": 0}
+    real_ensure = registry.CollectionRegistry.ensure
+
+    def flaky_ensure(self):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise RuntimeError("qdrant hiccup")
+        return real_ensure(self)
+
+    monkeypatch.setattr(registry.CollectionRegistry, "ensure", flaky_ensure)
+    svc = await _service(client, FakeEmbedder())
+    state = svc.collection_status["facts"]
+    assert state["status"] == registry.STATUS_UNKNOWN and state["collection"] is None
+
+    # First write: re-check runs at once (no earlier attempt) and recovers.
+    assert await svc.store_fact_embedding(
+        "A", "R", "B", "", "4f4a5b6c-7d8e-4f9a-8b1c-c2d3e4f5a6b7"
+    )
+    assert svc.collection_status["facts"]["status"] == registry.STATUS_OK
+    assert svc.blocked_writes.get("facts", 0) == 0
+
+
+@pytest.mark.asyncio
+async def test_recheck_is_rate_limited(client, monkeypatch):
+    svc = await _service(client, FakeEmbedder())
+    svc.collection_status["facts"] = {
+        "alias": "mnemodrome_facts_live",
+        "collection": None,
+        "status": registry.STATUS_UNKNOWN,
+        "detail": "test",
+    }
+    runs = {"n": 0}
+
+    async def failing_setup(memory_type, dimension):
+        runs["n"] += 1
+        raise RuntimeError("still down")
+
+    monkeypatch.setattr(svc, "_ensure_collection", failing_setup)
+    for _ in range(5):
+        assert await svc.ensure_trusted("facts") is False
+    assert runs["n"] == 1  # one attempt per RECHECK_INTERVAL_S
+    svc._last_recheck["facts"] -= svc.RECHECK_INTERVAL_S
+    await svc.ensure_trusted("facts")
+    assert runs["n"] == 2

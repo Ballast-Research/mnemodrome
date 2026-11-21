@@ -18,7 +18,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   in the Docker image). The model is downloaded once and verified by sha256;
   a wrong hash fails closed. Offline path in INSTALLATION.md.
 - `python -m src.cli.reindex status|build|catch-up|swap|rollback`
-  (`experimental`): rebuilds collections with the configured embedder from the
+  (`experimental`; `build --rebuild-on-drift` re-embeds a same-fingerprint
+  collection whose canary drifted into a new `_rN` generation): rebuilds collections with the configured embedder from the
   stored payload text, resumable, then moves the alias; the old collection is
   kept for rollback.
 - Stored data (additive, no manual step): Qdrant alias
@@ -112,10 +113,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   stored) when the collection's embedding fingerprint or canary does not match
   the active embedder, or could not be checked, instead of comparing scores
   across embedders (#134).
-- Vectors are not written into a collection that does not match the active
-  embedder (or could not be checked; re-checked every 30 s). The capture is
-  still stored in the graph and files; `vector_health` counts blocked writes
-  and mixed points (#134).
+- Vectors are not written into a collection whose fingerprint does not match
+  the active embedder, nor while the check cannot run (re-checked at most every
+  30 s on the next write, including a collection setup that failed at start).
+  The capture is still stored in the graph and files; `vector_health` counts
+  blocked writes and mixed points (#134).
+- Canary drift with a matching fingerprint (for example after an Ollama
+  upgrade on the default `ollama` provider) only warns: search shows a
+  warning, dedup is skipped, `vector_health` reports it; writes continue.
+  Repair: `python -m src.cli.reindex build --rebuild-on-drift`, then `swap`
+  (#134).
 - Upgrade note: a fresh install on this version creates
   `mnemodrome_<type>__<fingerprint8>` collections, which earlier versions do
   not read. Upgraded installs keep their `mnemodrome_<type>` collections, so a
