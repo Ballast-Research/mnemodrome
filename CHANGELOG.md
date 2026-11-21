@@ -10,8 +10,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - `scripts/release_check.py`: verifies a release tag (format `vX.Y.Z` or
   `vX.Y.ZrcN`, equals the `pyproject.toml` version, CHANGELOG heading, `uv.lock`
-  version, legal next step after the existing tags). The release workflow runs
-  it first.
+  version, legal next step after the existing tags; the next patch of the last
+  final tag stays allowed while an rc is open). The release workflow runs it first.
 - **Per-agent API keys** for the MCP server (Feature 040). One key per agent,
   stored as SHA-256 digests in a JSON file (`MNEMODROME_AGENT_KEYS_FILE`) and
   compared in constant time. Covers `/mcp`, the SSE endpoints, and every hook

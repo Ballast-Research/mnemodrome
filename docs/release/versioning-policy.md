@@ -64,7 +64,8 @@ test helpers, and anything marked `experimental`.
 - The version changes only in the release commit. PRs never touch it;
   they add entries under `[Unreleased]` in `CHANGELOG.md`.
 - One step per release: the next patch or the next minor. No skipped numbers.
-  No bump "because it feels big".
+  No bump "because it feels big". An open rc does not block a hotfix: the next
+  patch of the last final tag may ship while an rc is open.
 - Release when `main` holds something wanted live. A patch may carry one fix.
 - Majors are rare and batched: collect deprecations, remove them together.
 - Pre-releases: `X.Y.ZrcN` only (for example `1.1.0rc1`, tag `v1.1.0rc1`,
@@ -94,7 +95,13 @@ none" otherwise) and adds a CHANGELOG entry under `### Added`, `### Changed`,
   `CHANGELOG.md`, matches the version in `uv.lock`, and is a legal next step
   after the existing `v*` tags (next patch or minor of the last final tag, or
   an rc of it; a major only with `--allow-major`; after `rcN` only `rc(N+1)` or
-  the final; no tag reuse).
+  the final; no tag reuse). One exception: an open rc never blocks a hotfix.
+  While `v1.1.0rc1` is open, the next patch of the last final tag (`v1.0.1`)
+  is still allowed, and nothing else is. The hotfix's CHANGELOG entry must
+  also land under `[Unreleased]` so the rc line carries the fix.
+- A major release needs a reviewed change to `.github/workflows/release.yml`:
+  `--allow-major` is deliberately not wired into CI, so a major tag fails the
+  workflow until a maintainer-approved PR passes the flag.
 - The workflow pushes the `latest` image tag only for final tags and marks the
   GitHub release as a pre-release for `rc` tags.
 - Planned; until then, manual:

@@ -14,7 +14,13 @@ Examples use `1.1.0`; replace with the version you are cutting.
 3. The version follows the last final (non-rc) tag,
    `git tag --list 'v*' --sort=-v:refname | grep -v rc | head -1`, as its next
    patch or next minor, or as an rc of that version. No skipped numbers.
-   After `vX.Y.ZrcN` the only allowed next tags are `vX.Y.Zrc(N+1)` or `vX.Y.Z`.
+   After `vX.Y.ZrcN` the only allowed next tags are `vX.Y.Zrc(N+1)` or `vX.Y.Z`,
+   plus one exception, the hotfix: the next patch of the last final tag (for
+   example `v1.0.1` while `v1.1.0rc1` is open). Cut it like any release from a
+   branch off `main`, and add its CHANGELOG entry under `[Unreleased]` as well,
+   so the rc line carries the fix. A major (`X+1.0.0`) needs a reviewed change
+   to `.github/workflows/release.yml` that passes `--allow-major`; the flag is
+   deliberately not wired into CI.
 4. For a release candidate only: `.github/workflows/release.yml` skips the
    `latest` image tag for `rc` tags and marks the GitHub release as a
    pre-release. Enforced by the workflow (see step 10).
@@ -40,11 +46,13 @@ Examples use `1.1.0`; replace with the version you are cutting.
    `git fetch origin && git rev-parse origin/main`. Stop until the maintainer says yes.
 8. Tag that commit locally:
    `git switch --detach origin/main && git tag -a v1.1.0 -m "Mnemodrome 1.1.0"`
-9. Run the release check. It must exit 0. If it fails, `git tag -d v1.1.0`,
+9. Fetch the tags, then run the release check. It must exit 0.
+   `git fetch --tags origin` first: the sequence check reads local tags, and a
+   stale clone can pass here and fail in the workflow. If it fails, `git tag -d v1.1.0`,
    do not push, and see "Release check fails after merge" under Rollback.
 
    ```bash
-   python3 scripts/release_check.py
+   git fetch --tags origin && python3 scripts/release_check.py
    ```
 
    It checks the tag format, tag == `v<pyproject version>`, the CHANGELOG
@@ -100,6 +108,9 @@ Use it to rehearse a release before the final tag. Only `rcN` suffixes are allow
 - Tag pushed, workflow failed before any image or release was published:
   a maintainer may delete the tag (`git push origin :refs/tags/v1.1.0`), and the
   tag is cut again after the fix.
+- Re-running the workflow for an older tag after a newer tag exists fails the
+  sequence check; that is intended. Re-tagging is never the fix: cut the next
+  patch (or the next rc) instead.
 - Image or release published: never move, delete or reuse the tag. Fix forward
   with the next patch (or the next rc).
 

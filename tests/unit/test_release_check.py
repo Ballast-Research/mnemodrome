@@ -54,6 +54,12 @@ def make_repo(
         ("v1.1.0.post1", None),
         ("v1.1.0rc", None),
         ("v1.1.0rc1x", None),
+        ("v1.0.0\n", None),
+        ("v01.0.0", None),
+        ("v1.00.0", None),
+        ("v1.1.0rc0", None),
+        ("v1.1.0rc01", None),
+        ("v\u0661.0.0", None),
     ],
 )
 def test_parse_tag(tag, expected):
@@ -137,9 +143,30 @@ def test_rc_must_follow_previous_rc():
 
 def test_open_rc_line_blocks_other_versions():
     existing = tags("v1.0.0", "v1.1.0rc1")
-    errors = rc.check_sequence("v1.0.1", existing, HEAD)
+    errors = rc.check_sequence("v1.2.0rc1", existing, HEAD)
     assert errors and "rc line 1.1.0 is open" in errors[0]
-    assert rc.check_sequence("v1.2.0rc1", existing, HEAD)
+    assert rc.check_sequence("v1.0.2", existing, HEAD)  # skips 1.0.1
+    assert rc.check_sequence("v1.2.0", existing, HEAD)
+
+
+def test_hotfix_allowed_while_rc_open():
+    existing = tags("v1.0.0", "v1.1.0rc1")
+    assert rc.check_sequence("v1.0.1", existing, HEAD) == []
+    assert rc.check_sequence("v1.0.1rc1", existing, HEAD) == []
+    assert rc.check_sequence("v1.1.0rc2", existing, HEAD) == []
+
+
+def test_next_hotfix_after_hotfix_while_rc_open():
+    existing = tags("v1.0.0", "v1.1.0rc1", "v1.0.1")
+    assert rc.check_sequence("v1.0.2", existing, HEAD) == []
+    assert rc.check_sequence("v1.0.3", existing, HEAD)
+    assert rc.check_sequence("v1.1.0", existing, HEAD) == []
+
+
+def test_hotfix_rc_numbering_still_enforced():
+    existing = tags("v1.0.0", "v1.1.0rc1", "v1.0.1rc1")
+    assert rc.check_sequence("v1.0.1rc2", existing, HEAD) == []
+    assert rc.check_sequence("v1.0.1rc3", existing, HEAD)
 
 
 def test_rc_line_closed_after_final():
@@ -211,3 +238,7 @@ def test_is_prerelease_mode(capsys):
     assert rc.main(["v1.1.0", "--is-prerelease"]) == 0
     assert capsys.readouterr().out.strip() == "false"
     assert rc.main(["v1.1.0-rc.1", "--is-prerelease"]) == 1
+
+
+def test_is_prerelease_rejects_trailing_newline():
+    assert rc.main(["v1.1.0\n", "--is-prerelease"]) == 1

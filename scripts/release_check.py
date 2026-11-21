@@ -13,8 +13,9 @@ TAG defaults to `git describe --tags --exact-match HEAD`. Checks:
   d. uv.lock, if present, records the same version for this package;
   e. the version is a legal next step after the existing v* tags
      (next patch or minor of the last final tag, next major only with
-     --allow-major, or an rc of that; after rcN only rc(N+1) or the final;
-     an existing tag is never reused).
+     --allow-major, or an rc of that; after rcN only rc(N+1) or the final,
+     except the next patch of the last final tag, a hotfix, which is always
+     allowed; an existing tag is never reused).
 
 One line is printed per failed check and the exit code is 1. With
 --is-prerelease the script prints "true" or "false" and checks nothing else.
@@ -30,7 +31,9 @@ import sys
 import tomllib
 from pathlib import Path
 
-TAG_RE = re.compile(r"^v(\d+)\.(\d+)\.(\d+)(?:rc(\d+))?$")
+TAG_RE = re.compile(
+    r"v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(?:rc([1-9][0-9]*))?", re.ASCII
+)
 PACKAGE = "mnemodrome"
 
 # (major, minor, patch, rc) where rc is None for a final release.
@@ -39,7 +42,7 @@ Version = tuple[int, int, int, int | None]
 
 def parse_tag(tag: str) -> Version | None:
     """Return the parsed tag, or None when it is not vX.Y.Z or vX.Y.ZrcN."""
-    m = TAG_RE.match(tag)
+    m = TAG_RE.fullmatch(tag)
     if not m:
         return None
     major, minor, patch, rc = m.groups()
@@ -89,9 +92,16 @@ def check_sequence(
         {v[:3] for v in others if v[3] is not None and (last is None or v[:3] > last)}
     )
     pending = open_bases[-1] if open_bases else None
-    if pending is not None and base != pending:
+    # One exception keeps an open rc from blocking a hotfix: the next patch of
+    # the last final tag.
+    hotfix = (last[0], last[1], last[2] + 1) if last is not None else None
+    if pending is not None and base != pending and base != hotfix:
         errors.append(
             f"sequence: rc line {_fmt(pending)} is open; the next tag must be an rc of "
+            f"{_fmt(pending)}, the final {_fmt(pending)}, or the hotfix {_fmt(hotfix)}, "
+            f"not {_fmt(base)}"
+            if hotfix
+            else f"sequence: rc line {_fmt(pending)} is open; the next tag must be an rc of "
             f"{_fmt(pending)} or the final {_fmt(pending)}, not {_fmt(base)}"
         )
         return errors
