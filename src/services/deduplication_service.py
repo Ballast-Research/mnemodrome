@@ -11,6 +11,7 @@ of truth in Mnemodrome's dual-memory system.
 """
 
 import difflib
+import inspect
 import time
 from datetime import datetime
 from pathlib import Path
@@ -276,11 +277,28 @@ class DeduplicationService:
                 return []
             raise RuntimeError("Vector service unavailable")
 
+        trusted = True
+        ensure_trusted = getattr(self.vector_service, "ensure_trusted", None)
+        is_trusted = getattr(self.vector_service, "is_trusted", None)
+        if inspect.iscoroutinefunction(ensure_trusted):
+            trusted = await ensure_trusted("learnings")
+        elif callable(is_trusted):
+            trusted = is_trusted("learnings")
+        if trusted is False:
+            # Fail closed (#134): scores from a collection built by another
+            # embedder must not skip or merge a capture. Store it; dedup later.
+            logger.warning(
+                "Deduplication skipped: learnings collection has an embedding "
+                "fingerprint mismatch (see vector_health)"
+            )
+            return []
+
         try:
             results = await self.vector_service.search_similar_learnings(
                 query_text=content,
                 limit=limit,
                 min_score=threshold,
+                role="document",
             )
         except Exception as e:
             if self.enable_graceful_degradation:

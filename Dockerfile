@@ -24,8 +24,10 @@ COPY pyproject.toml uv.lock ./
 # cannot silently pull a newer (potentially compromised) release than the one
 # we locked and reviewed. --require-hashes verifies each artifact's integrity.
 # Includes the [postgres] extra (asyncpg) so EVENT_LOG_BACKEND=postgres works
-# out of the box.
-RUN uv export --frozen --extra postgres --no-emit-project --no-dev \
+# out of the box, and the [onnx] extra (onnxruntime, about 65 MB) so
+# EMBED_PROVIDER=local-onnx works. The model itself is not in the image: it is
+# downloaded once into EMBED_MODEL_DIR and verified by sha256 (#134).
+RUN uv export --frozen --extra postgres --extra onnx --no-emit-project --no-dev \
         --format requirements-txt -o /tmp/requirements.lock \
  && uv pip install --system --require-hashes -r /tmp/requirements.lock \
  && rm -f /tmp/requirements.lock

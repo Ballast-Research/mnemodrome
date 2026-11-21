@@ -45,6 +45,9 @@ def _make_mock_vector_service(enabled=True, initialized=True, embedding=None):
     vs._initialized = initialized
     vs.embed_text = AsyncMock(return_value=embedding)
     vs.client = MagicMock()
+    vs.is_trusted = MagicMock(return_value=True)
+    vs.ensure_trusted = AsyncMock(return_value=True)
+    vs.tag_payload = MagicMock(side_effect=lambda p: {**p, "embed_fp": "test-fp"})
     return vs
 
 
@@ -258,6 +261,22 @@ class TestCheckDuplicate:
     """Verify _check_duplicate queries Qdrant with correct parameters."""
 
     @pytest.mark.asyncio
+    async def test_fails_closed_on_fingerprint_mismatch(self):
+        """#134: a mismatched collection must not mark a procedure duplicate."""
+        mock_vs = _make_mock_vector_service()
+        mock_vs.ensure_trusted = AsyncMock(return_value=False)
+
+        with patch(_PATCH_VECTOR, return_value=mock_vs):
+            svc = ProcedureService()
+            result = await svc._check_duplicate(
+                symptom="Service is slow", root_cause="Leak", problem_type="infra"
+            )
+
+        assert result is None
+        mock_vs.embed_text.assert_not_called()
+        mock_vs.client.query_points.assert_not_called()
+
+    @pytest.mark.asyncio
     async def test_returns_uuid_on_match(self):
         mock_vs = _make_mock_vector_service()
         hit = _make_qdrant_hit(uuid="dup-uuid-777", score=0.96)
@@ -277,7 +296,8 @@ class TestCheckDuplicate:
             # Verify embed_text was called with symptom + root_cause
             mock_vs.embed_text.assert_called_once_with(
                 "Service is responding slowly with high latency "
-                "Memory leak in background worker process"
+                "Memory leak in background worker process",
+                "document",
             )
             # Verify query_points params
             call_kwargs = mock_vs.client.query_points.call_args

@@ -43,6 +43,11 @@ dependencies = [
 postgres = [
     "asyncpg>=0.30.0",
 ]
+# In-process embeddings (EMBED_PROVIDER=local-onnx, experimental, #134).
+# Exact pin: the embedding pipeline is part of every stored vector.
+onnx = [
+    "onnxruntime==1.31.0",
+]
 dev = [
     "pytest>=7.4.0",
     "pytest-asyncio>=0.23.0",
