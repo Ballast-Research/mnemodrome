@@ -1,4 +1,4 @@
-Status: active · Owner: the maintainers · Verified: 2026-11-18 · Verify-on: change to .github/workflows/release.yml, the release check in AGENTS.md, or docs/release/versioning-policy.md
+Status: active · Owner: the maintainers · Verified: 2026-11-21 · Verify-on: change to .github/workflows/release.yml, the release check in AGENTS.md, or docs/release/versioning-policy.md
 
 # Cut a release
 
@@ -16,8 +16,8 @@ Examples use `1.1.0`; replace with the version you are cutting.
    patch or next minor, or as an rc of that version. No skipped numbers.
    After `vX.Y.ZrcN` the only allowed next tags are `vX.Y.Zrc(N+1)` or `vX.Y.Z`.
 4. For a release candidate only: `.github/workflows/release.yml` skips the
-   `latest` image tag for `rc` tags. Not true yet (see step 10); do not tag an
-   rc until it is.
+   `latest` image tag for `rc` tags and marks the GitHub release as a
+   pre-release. Enforced by the workflow (see step 10).
 
 ## Steps
 
@@ -44,20 +44,24 @@ Examples use `1.1.0`; replace with the version you are cutting.
    do not push, and see "Release check fails after merge" under Rollback.
 
    ```bash
-   v=$(python3 -c "import tomllib; print(tomllib.load(open('pyproject.toml','rb'))['project']['version'])") && test "$(git describe --tags --exact-match HEAD)" = "v$v" && grep -q "^## \[$v\]" CHANGELOG.md
+   python3 scripts/release_check.py
    ```
+
+   It checks the tag format, tag == `v<pyproject version>`, the CHANGELOG
+   heading, the `uv.lock` version and the tag sequence, and prints one line per
+   failed check. A major version needs `--allow-major`.
 
 10. Push the tag: `git push origin v1.1.0`. This starts
     [`.github/workflows/release.yml`](../../.github/workflows/release.yml), which:
-    - checks out the tag, installs dependencies with `uv sync`, and runs the unit tests;
-    - logs in to GHCR and builds and pushes `ghcr.io/ballast-research/mnemodrome:<version>`
-      **and** `:latest`, where `<version>` is the tag without the leading `v`;
-    - creates a GitHub release for the tag with auto-generated notes.
+    - checks out the tag with full history, runs `python3 scripts/release_check.py`
+      (a failure stops the run before any image is built), installs dependencies with `uv sync`, and runs the unit tests;
+    - logs in to GHCR and builds and pushes `ghcr.io/ballast-research/mnemodrome:<version>`,
+      where `<version>` is the tag without the leading `v`, and also `:latest`
+      for a final tag only; an rc tag never moves `latest`;
+    - creates a GitHub release for the tag with auto-generated notes, marked as
+      a pre-release for an rc tag.
 
-    Known gaps, planned for the next release-tooling change; until then, manual:
-    the workflow pushes `latest` for every tag, including an rc; it does not mark
-    an rc release as a pre-release; it does not run the release check, so step 9
-    is the only guard.
+    Step 9 and the workflow run the same script, so a bad tag is caught twice.
 
 ## Verify
 

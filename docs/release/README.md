@@ -1,4 +1,4 @@
-Status: active · Owner: the maintainers · Verified: 2026-11-18 · Verify-on: change to the pyproject.toml version, CHANGELOG.md, .github/workflows/release.yml or docs/decisions/
+Status: active · Owner: the maintainers · Verified: 2026-11-21 · Verify-on: change to the pyproject.toml version, CHANGELOG.md, .github/workflows/release.yml or docs/decisions/
 
 # Release
 
@@ -50,8 +50,11 @@ The ADRs cited below are `proposed` until a maintainer accepts them.
 - Change record: [`CHANGELOG.md`](../../CHANGELOG.md) (Keep a Changelog format).
 - What a `v*` tag does: [`.github/workflows/release.yml`](../../.github/workflows/release.yml).
 - Decisions: [`docs/decisions/`](../decisions/README.md).
-- Release check (run on the tagged commit; must exit 0):
+- Release check (run on the tagged commit; must exit 0; also runs first in the
+  release workflow):
 
 ```bash
-v=$(python3 -c "import tomllib; print(tomllib.load(open('pyproject.toml','rb'))['project']['version'])") && test "$(git describe --tags --exact-match HEAD)" = "v$v" && grep -q "^## \[$v\]" CHANGELOG.md
+python3 scripts/release_check.py
 ```
+
+  Source: [`scripts/release_check.py`](../../scripts/release_check.py).
