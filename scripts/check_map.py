@@ -14,7 +14,8 @@ Fails (one line per problem, exit 1) when:
      ADR 100, other docs 150);
   6. a map doc links into docs/transfers/;
   7. docs/map.yml disagrees with the routing table in AGENTS.md;
-  8. docs/decisions/README.md does not link every ADR file.
+  8. docs/decisions/README.md does not link every ADR file;
+  9. a link's #fragment names no heading in the target Markdown file.
 Warns (exit code unchanged) when a Verified date is older than 120 days, or
 older than the last commit touching a path named in its Verify-on field.
 docs/transfers/ and docs/archive/ are excluded. Standard library only.
@@ -43,6 +44,7 @@ HEADER_RE = re.compile(
 )
 LINK_RE = re.compile(r"\]\(([^)\s]+)\)")
 TICK_RE = re.compile(r"`([A-Za-z0-9_./-]+)`")
+HEADING_RE = re.compile(r"#{1,6}\s+(.*?)\s*#*\s*$")
 PATH_EXT = (".md", ".py", ".yml", ".yaml", ".toml", ".json", ".lock", ".sh")
 
 
@@ -55,9 +57,10 @@ def targets(root: Path, doc: Path) -> list[tuple[str, Path]]:
     text = doc.read_text(encoding="utf-8")
     out = []
     for raw in LINK_RE.findall(text):
-        if "://" in raw or raw.startswith(("#", "mailto:")):
+        if "://" in raw or raw.startswith("mailto:"):
             continue
-        out.append((raw, (doc.parent / raw.split("#")[0]).resolve()))
+        path = raw.split("#")[0]
+        out.append((raw, (doc.parent / path).resolve() if path else doc.resolve()))
     if doc.name == "AGENTS.md" and doc.parent.resolve() == root.resolve():
         for raw in TICK_RE.findall(text):
             if raw.startswith(".private") or not (
@@ -66,6 +69,28 @@ def targets(root: Path, doc: Path) -> list[tuple[str, Path]]:
                 continue
             out.append((raw, (root / raw).resolve()))
     return out
+
+
+def slugs(path: Path) -> set[str]:
+    """GitHub-style heading anchors of a Markdown file (duplicates get -1, -2)."""
+    found: set[str] = set()
+    counts: dict[str, int] = {}
+    fenced = False
+    for line in path.read_text(encoding="utf-8").splitlines():
+        if line.lstrip().startswith(("```", "~~~")):
+            fenced = not fenced
+            continue
+        m = None if fenced else HEADING_RE.match(line)
+        if not m:
+            continue
+        text = re.sub(r"\[([^\]]*)\]\([^)]*\)", r"\1", m[1])
+        text = text.replace("`", "").strip().lower()
+        base = "".join(c for c in text if c.isalnum() or c in " -_")
+        base = base.replace(" ", "-")
+        n = counts.get(base, 0)
+        counts[base] = n + 1
+        found.add(base if n == 0 else f"{base}-{n}")
+    return found
 
 
 def walk(root: Path, errors: list[str]) -> set[str]:
@@ -90,7 +115,11 @@ def walk(root: Path, errors: list[str]) -> set[str]:
                 errors.append(f"transfer: {name} links into docs/transfers/ ({raw})")
             if not target.exists():
                 errors.append(f"link: {name} -> {raw} does not resolve")
-            elif target.is_file() and tname not in seen:
+            elif "#" in raw and target.suffix == ".md" and target.is_file():
+                frag = raw.split("#", 1)[1].lower()
+                if frag and frag not in slugs(target):
+                    errors.append(f"anchor: {name} -> {raw} names no heading")
+            if target.exists() and target.is_file() and tname not in seen:
                 todo.append(target)
             elif target.is_dir():
                 seen.add(tname.rstrip("/") + "/")

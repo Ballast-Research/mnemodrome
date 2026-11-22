@@ -121,6 +121,30 @@ def test_overlay_and_urls_are_not_links(tmp_path):
     assert errors(root) == []
 
 
+def _anchor_repo(tmp_path, link):
+    root = make_repo(tmp_path)
+    (root / "docs" / "product" / "README.md").write_text(
+        f"{HEADER}\n\n# Product\n\n## Same `Name`!\n\n## Same `Name`!\n\n"
+        f"[Decisions](../decisions/README.md)\n[x]({link})\n"
+    )
+    return root
+
+
+def test_good_anchors_pass(tmp_path):
+    for link in ("#product", "#same-name", "../decisions/README.md#decisions"):
+        assert errors(_anchor_repo(tmp_path, link)) == []
+
+
+def test_duplicate_heading_suffix_passes(tmp_path):
+    assert errors(_anchor_repo(tmp_path, "#same-name-1")) == []
+
+
+def test_bad_anchor_fails(tmp_path):
+    assert any("anchor:" in e for e in errors(_anchor_repo(tmp_path, "#nope")))
+    bad = "../decisions/README.md#nope"
+    assert any("anchor:" in e for e in errors(_anchor_repo(tmp_path, bad)))
+
+
 def test_orphan_doc(tmp_path):
     root = make_repo(tmp_path)
     (root / "docs" / "product" / "lonely.md").write_text(f"{HEADER}\n\n# Lonely\n")

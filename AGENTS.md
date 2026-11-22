@@ -30,7 +30,7 @@ Before you suggest, recommend or propose anything, in any row, take the "suggest
 
 | Intent | Read first | Procedure | Gate (stop until) |
 |---|---|---|---|
-| suggest, recommend or propose an option or design | `docs/decisions/README.md` | the ADRs it lists for the area; maintainers also overlay: decisions | precondition: you read the governing ADRs; the suggestion cites the ADR it builds on or supersedes, or says none applies |
+| suggest, recommend or propose an option or design | `docs/decisions/README.md` | fill the "Governing decision" field in `.github/PULL_REQUEST_TEMPLATE.md`; maintainers also overlay: decisions | check: the field is filled with an ADR number or "none (checked docs/decisions/)" |
 | idea: "it should also do X" | `docs/product/README.md` | `CONTRIBUTING.md` "Suggesting Features" | check: issue filed; approval: a maintainer before any code |
 | bug: "I saw X misbehave" | `docs/development/README.md` | `CONTRIBUTING.md` "Reporting Bugs", "Testing Strategy" | check: issue exists; lint + tests below exit 0; one PR per issue |
 | change an MCP tool, env var, route, CLI or stored data | `docs/architecture/README.md` | `docs/release/versioning-policy.md` | check: CHANGELOG entry under Added/Changed/Deprecated/Removed; approval: a maintainer for any removal |

@@ -18,8 +18,9 @@ intents:
     row: suggest, recommend or propose an option or design
     keywords: ["suggest", "recommend", "propose", "option", "design", "should we", "alternative"]
     read: docs/decisions/README.md
+    procedure: [".github/PULL_REQUEST_TEMPLATE.md"]
     overlay: decisions
-    gates: ["precondition: the governing ADRs were read and the suggestion cites one or says none applies"]
+    gates: ["check: the Governing decision field is filled with an ADR number or none (checked docs/decisions/)"]
   idea:
     row: idea
     keywords: ["idea", "feature", "it should also", "enhancement"]
