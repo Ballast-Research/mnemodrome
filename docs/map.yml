@@ -1,0 +1,87 @@
+# Status: active · Owner: the maintainers · Verified: 2026-11-22 · Verify-on: change to the routing table in AGENTS.md
+#
+# Machine index of the intent routing table in AGENTS.md (section 3), for hooks,
+# dispatchers and agents that do not read Markdown. AGENTS.md is the human view
+# of the same data; scripts/check_map.py fails when the two disagree.
+#
+# Format (a strict YAML subset, so the checker needs no YAML library):
+#   intents:          two-space indent for an intent name,
+#     <field>: value  four-space indent for a field; lists are JSON arrays.
+# Fields: row (the table's Intent cell up to the first colon), keywords, read,
+# procedure (paths in the Procedure cell), overlay (overlay area, maintainers
+# only), gates ("<kind>: <text>", kind = check | approval | precondition).
+
+profile: full
+
+intents:
+  suggest:
+    row: suggest, recommend or propose an option or design
+    keywords: ["suggest", "recommend", "propose", "option", "design", "should we", "alternative"]
+    read: docs/decisions/README.md
+    procedure: [".github/PULL_REQUEST_TEMPLATE.md"]
+    overlay: decisions
+    gates: ["check: the Governing decision field is filled with an ADR number or none (checked docs/decisions/)"]
+  idea:
+    row: idea
+    keywords: ["idea", "feature", "it should also", "enhancement"]
+    read: docs/product/README.md
+    procedure: ["CONTRIBUTING.md"]
+    gates: ["check: issue filed", "approval: a maintainer before any code"]
+  bug:
+    row: bug
+    keywords: ["bug", "misbehave", "error", "broken", "regression", "fix"]
+    read: docs/development/README.md
+    procedure: ["CONTRIBUTING.md"]
+    gates: ["check: issue exists", "check: lint and unit tests exit 0", "precondition: one PR per issue"]
+  change:
+    row: change an MCP tool, env var, route, CLI or stored data
+    keywords: ["mcp tool", "env var", "environment variable", "route", "cli", "flag", "schema", "stored data", "api"]
+    read: docs/architecture/README.md
+    procedure: ["docs/release/versioning-policy.md"]
+    gates: ["check: CHANGELOG entry under Added/Changed/Deprecated/Removed", "approval: a maintainer for any removal"]
+  review:
+    row: review a PR
+    keywords: ["review", "pull request", "pr"]
+    read: docs/development/README.md
+    overlay: review
+    gates: ["approval: one independent review per PR"]
+  push:
+    row: push to GitHub
+    keywords: ["push", "github", "branch"]
+    read: docs/development/README.md
+    overlay: push
+    gates: ["check: push gate prints PASSED"]
+  release:
+    row: release
+    keywords: ["release", "tag", "version", "changelog", "rc"]
+    read: docs/release/README.md
+    procedure: ["docs/release/cut-a-release.md"]
+    gates: ["check: python3 scripts/release_check.py", "precondition: CI green", "approval: a maintainer for the tag"]
+  deploy:
+    row: deploy, rollback
+    keywords: ["deploy", "rollback", "production", "image", "digest"]
+    overlay: operations
+    gates: ["approval: a maintainer says deploy", "precondition: image digest exists for the tag"]
+  live:
+    row: live service is misbehaving
+    keywords: ["live", "incident", "outage", "down", "health"]
+    overlay: operations
+    gates: ["precondition: read-only until a maintainer authorizes a change"]
+  secret:
+    row: secret, key, auth mode
+    keywords: ["secret", "key", "token", "password", "auth", "enforce"]
+    read: docs/security/README.md
+    overlay: security
+    gates: ["precondition: never print a value", "approval: a maintainer for any mode change"]
+  cross-repo:
+    row: work that also changes another repo
+    keywords: ["another repo", "cross-repo", "other project"]
+    read: docs/development/README.md
+    overlay: cross-repo
+    gates: ["check: an issue exists in that repo", "precondition: you entered its trailhead"]
+  docs:
+    row: docs, including this map
+    keywords: ["docs", "documentation", "map", "agents.md", "area page", "adr"]
+    read: AGENTS.md
+    procedure: ["docs/map.yml"]
+    gates: ["check: python3 scripts/check_map.py", "approval: a maintainer"]

@@ -1,0 +1,6 @@
+# Owners of the map (level 0), release and decisions. See docs/decisions/ and AGENTS.md.
+/AGENTS.md            @Ballast-Research/maintainers
+/docs/map.yml         @Ballast-Research/maintainers
+/docs/release/        @Ballast-Research/maintainers
+/docs/decisions/      @Ballast-Research/maintainers
+/.github/CODEOWNERS   @Ballast-Research/maintainers

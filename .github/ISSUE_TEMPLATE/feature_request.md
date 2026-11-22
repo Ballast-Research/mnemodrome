@@ -18,6 +18,10 @@ Describe your proposed solution or feature.
 
 Any alternative solutions or features you've considered.
 
+## Governing Decision
+
+Governing decision: ADR-NNN | none (checked docs/decisions/)
+
 ## Additional Context
 
 Any other context, screenshots, or examples.

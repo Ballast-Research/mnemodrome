@@ -17,6 +17,8 @@ Brief description of the changes.
 
 API surface change: none
 
+Governing decision: ADR-NNN | none (checked docs/decisions/)
+
 ## Testing
 
 Describe how you tested these changes.

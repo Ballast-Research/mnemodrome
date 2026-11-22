@@ -1,3 +1,5 @@
+Status: active · Owner: the maintainers · Verified: 2026-11-22 · Verify-on: a change to the six layers, the governance mechanisms, or the design principles
+
 # The Epistemic Governance Thesis
 
 > AI memory is not a retrieval problem. It's a trust problem.
