@@ -121,8 +121,14 @@ def test_overlay_and_urls_are_not_links(tmp_path):
     assert errors(root) == []
 
 
+def _fresh(base):
+    n = len(list(base.iterdir()))
+    (base / f"r{n}").mkdir()
+    return base / f"r{n}"
+
+
 def _anchor_repo(tmp_path, link):
-    root = make_repo(tmp_path)
+    root = make_repo(_fresh(tmp_path))
     (root / "docs" / "product" / "README.md").write_text(
         f"{HEADER}\n\n# Product\n\n## Same `Name`!\n\n## Same `Name`!\n\n"
         f"[Decisions](../decisions/README.md)\n[x]({link})\n"
