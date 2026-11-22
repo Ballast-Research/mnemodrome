@@ -442,6 +442,7 @@ Full setup, Docker commands, and client examples: [INSTALLATION.md](INSTALLATION
 - **[Installation Guide](INSTALLATION.md)**: Docker Compose quickstart, manual setup, Admin UI and Memory Browser
 - **[Contributing](CONTRIBUTING.md)**: How to contribute
 - **[Security Policy](SECURITY.md)**: Vulnerability reporting
+- **[Project map](AGENTS.md)**: where each kind of change starts, and the area pages under [`docs/`](docs/product/README.md) (product, architecture, development, release, operations, security)
 
 ---
 

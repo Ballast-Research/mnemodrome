@@ -30,6 +30,9 @@ jobs:
       - name: Format check with ruff
         run: uv run ruff format --check .
 
+      - name: Check the project map
+        run: python3 scripts/check_map.py
+
   test:
     runs-on: ubuntu-latest
     strategy:
