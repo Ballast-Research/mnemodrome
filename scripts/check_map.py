@@ -13,7 +13,9 @@ Fails (one line per problem, exit 1) when:
   5. a map doc has no header line, or is over its cap (area page 60 lines,
      ADR 100, other docs 150);
   6. a map doc links into docs/transfers/;
-  7. docs/map.yml disagrees with the routing table in AGENTS.md;
+  7. docs/map.yml disagrees with the routing table in AGENTS.md (read,
+     procedure, overlay and gates; gates are compared after dropping backticks
+     and double quotes and collapsing spaces);
   8. docs/decisions/README.md does not link every ADR file;
   9. a link's #fragment names no heading in the target Markdown file.
 Warns (exit code unchanged) when a Verified date is older than 120 days, or
@@ -188,6 +190,11 @@ def check_headers(root: Path, today: dt.date, errors: list, warnings: list) -> N
                 )
 
 
+def norm_gate(text: str) -> str:
+    """Normalize a gate: drop backticks and double quotes, collapse spaces."""
+    return re.sub(r"\s+", " ", text.replace("`", "").replace('"', "")).strip()
+
+
 def table_rows(agents: str) -> dict[str, dict]:
     """Parse the intent routing table: intent -> read, procedure paths, overlay."""
     rows = {}
@@ -202,6 +209,7 @@ def table_rows(agents: str) -> dict[str, dict]:
             "read": read[0] if read else None,
             "procedure": sorted(TICK_RE.findall(cells[2])),
             "overlay": sorted(set(over)),
+            "gates": [norm_gate(g) for g in cells[3].split(";") if g.strip()],
         }
     return rows
 
@@ -249,8 +257,9 @@ def check_map_yml(root: Path, agents: str, errors: list[str]) -> None:
             "read": intent.get("read"),
             "procedure": sorted(intent.get("procedure", [])),
             "overlay": sorted([intent["overlay"]] if "overlay" in intent else []),
+            "gates": [norm_gate(g) for g in intent.get("gates", [])],
         }
-        for field in ("read", "procedure", "overlay"):
+        for field in ("read", "procedure", "overlay", "gates"):
             if got[field] != want[field]:
                 errors.append(
                     f"map.yml: intent '{key}' {field} {got[field]} != table {want[field]}"

@@ -45,6 +45,7 @@ def map_yml(rows: dict = ROWS) -> str:
     out = ["profile: full", "", "intents:"]
     for key, (row, read, proc) in rows.items():
         out += [f"  {key}:", f"    row: {row.split(':')[0]}"]
+        out.append('    gates: ["check: x"]')
         if read.startswith("`"):
             out.append(f"    read: {read.strip('`')}")
         for cell in (read, proc):
@@ -195,6 +196,23 @@ def test_map_yml_must_match_table(tmp_path):
     rows["bug"] = ("bug: X", "`docs/decisions/README.md`", "`CONTRIBUTING.md`")
     (root / "docs" / "map.yml").write_text(map_yml(rows))
     assert any(e.startswith("map.yml: intent 'bug' read") for e in errors(root))
+
+
+def test_map_yml_gates_must_match_table(tmp_path):
+    root = make_repo(tmp_path)
+    text = (root / "docs" / "map.yml").read_text()
+    (root / "docs" / "map.yml").write_text(text.replace("check: x", "check: y", 1))
+    assert any("gates" in e and "!= table" in e for e in errors(root))
+
+
+def test_gate_wording_ignores_quotes_backticks_and_spacing(tmp_path):
+    root = make_repo(tmp_path)
+    (root / "AGENTS.md").write_text(
+        (root / "AGENTS.md").read_text().replace("check: x", 'check: `x`  "x"', 1)
+    )
+    text = (root / "docs" / "map.yml").read_text()
+    (root / "docs" / "map.yml").write_text(text.replace("check: x", "check: x x", 1))
+    assert errors(root) == []
 
 
 def test_map_yml_required_intent_and_extra_row(tmp_path):

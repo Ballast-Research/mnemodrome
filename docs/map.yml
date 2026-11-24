@@ -20,7 +20,7 @@ intents:
     read: docs/decisions/README.md
     procedure: [".github/PULL_REQUEST_TEMPLATE.md"]
     overlay: decisions
-    gates: ["check: the Governing decision field is filled with an ADR number or none (checked docs/decisions/)"]
+    gates: ["check: the field is filled with an ADR number or none (checked docs/decisions/)"]
   idea:
     row: idea
     keywords: ["idea", "feature", "it should also", "enhancement"]
@@ -32,7 +32,7 @@ intents:
     keywords: ["bug", "misbehave", "error", "broken", "regression", "fix"]
     read: docs/development/README.md
     procedure: ["CONTRIBUTING.md"]
-    gates: ["check: issue exists", "check: lint and unit tests exit 0", "precondition: one PR per issue"]
+    gates: ["check: issue exists", "lint + tests below exit 0", "one PR per issue"]
   change:
     row: change an MCP tool, env var, route, CLI or stored data
     keywords: ["mcp tool", "env var", "environment variable", "route", "cli", "flag", "schema", "stored data", "api"]
@@ -44,7 +44,7 @@ intents:
     keywords: ["review", "pull request", "pr"]
     read: docs/development/README.md
     overlay: review
-    gates: ["approval: one independent review per PR"]
+    gates: ["one independent review per PR"]
   push:
     row: push to GitHub
     keywords: ["push", "github", "branch"]
@@ -56,7 +56,7 @@ intents:
     keywords: ["release", "tag", "version", "changelog", "rc"]
     read: docs/release/README.md
     procedure: ["docs/release/cut-a-release.md"]
-    gates: ["check: python3 scripts/release_check.py", "precondition: CI green", "approval: a maintainer for the tag"]
+    gates: ["check: release check below exits 0 on the tagged commit", "precondition: CI green", "approval: a maintainer for the tag"]
   deploy:
     row: deploy, rollback
     keywords: ["deploy", "rollback", "production", "image", "digest"]
@@ -72,16 +72,16 @@ intents:
     keywords: ["secret", "key", "token", "password", "auth", "enforce"]
     read: docs/security/README.md
     overlay: security
-    gates: ["precondition: never print a value", "approval: a maintainer for any mode change"]
+    gates: ["never print a value", "approval: a maintainer for any mode change"]
   cross-repo:
     row: work that also changes another repo
     keywords: ["another repo", "cross-repo", "other project"]
     read: docs/development/README.md
     overlay: cross-repo
-    gates: ["check: an issue exists in that repo", "precondition: you entered its trailhead"]
+    gates: ["check: an issue exists in that repo", "you entered its trailhead"]
   docs:
     row: docs, including this map
     keywords: ["docs", "documentation", "map", "agents.md", "area page", "adr"]
     read: AGENTS.md
     procedure: ["docs/map.yml"]
-    gates: ["check: python3 scripts/check_map.py", "approval: a maintainer"]
+    gates: ["check: python3 scripts/check_map.py exits 0", "approval: a maintainer"]
