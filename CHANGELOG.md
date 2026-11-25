@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.0rc1] - 2026-11-25
+
 ### Added
 - **Embedding providers and fingerprints** (#134). New environment variables,
   all `experimental`: `EMBED_PROVIDER=ollama|local-onnx|openai-compatible`

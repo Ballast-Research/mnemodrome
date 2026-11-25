@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "mnemodrome"
-version = "1.0.0"
+version = "1.1.0rc1"
 description = "Multi-layer cognitive memory system with epistemic governance for AI agents"
 authors = [
     {name = "Carlos Mendez", email = "carlos@icarlosmendez.com"}
