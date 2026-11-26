@@ -105,7 +105,7 @@ This is the "portable memory" thesis: your AI's knowledge belongs to you, not to
 
 **Silence is a failure mode.** If a retrieved fact might be wrong, the system must say so. Silent retrieval of stale data is worse than no retrieval at all.
 
-**Local by default.** Embeddings via Ollama. All storage local. Cloud providers optional, never required.
+**Local by default.** Embeddings run locally (Ollama by default, or experimental in-process ONNX). All storage local. Cloud providers optional, never required.
 
 **Layers compose, not compete.** Each storage layer handles what it's best at. The cascade orchestrates.
 

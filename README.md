@@ -31,7 +31,7 @@ Mnemodrome fixes this. It is not a vector database with a wrapper. It is a six-l
 
 Mnemodrome uses two local models. Neither is for chatting with you.
 
-**Embedding model** (`nomic-embed-text`, required): Converts text to vectors so memories are retrieved by meaning, not keyword match. When you store a fact it is embedded; retrieval uses cosine similarity to surface what is semantically relevant. `nomic-embed-text` is the standard local choice (768 dimensions, about 274 MB).
+**Embedding model** (`nomic-embed-text`, required): Converts text to vectors so memories are retrieved by meaning, not keyword match. When you store a fact it is embedded; retrieval uses cosine similarity to surface what is semantically relevant. `nomic-embed-text` is the standard local choice (768 dimensions, about 274 MB). By default Ollama runs it; an in-process ONNX provider (`local-onnx`) and any OpenAI-compatible embeddings endpoint are available as experimental options (see [Configuration](#configuration)).
 
 **Extraction/classification model** (required for LLM-assisted features): Reads prose and pulls out entities and relationships in a two-stage pipeline: extract, then classify. This turns "I moved my server to NixOS last week" into a structured, queryable graph fact. A memory system needs a small model of its own because turning free-form text into structured knowledge requires natural-language understanding, not keyword parsing. A narrow, well-defined task like entity extraction does not need a large model: a well-tuned 4B model is faster and costs nothing at inference time when running locally.
 
@@ -66,7 +66,7 @@ Mnemodrome runs wherever your Ollama runs: NVIDIA, AMD, or Apple Silicon. The ex
 If using Ollama, pull the required models first:
 
 ```bash
-ollama pull nomic-embed-text    # embedding model (required)
+ollama pull nomic-embed-text    # embedding model (required for the default `ollama` embedding provider)
 ollama pull gemma3:4b-it-qat    # extraction model (verified default, ~4.0 GB)
 # or the lighter option:
 ollama pull gemma4:e2b-it-qat   # (~4.3 GB, fits in ~8 GB VRAM)
@@ -200,9 +200,9 @@ Six layers, each optimized for a different cognitive function:
 | Layer | Store | Purpose |
 |-------|-------|---------|
 | **Graph** | Neo4j | Entity relationships, temporal context, graph traversal |
-| **Vector** | Qdrant | Semantic similarity search via local Ollama embeddings |
+| **Vector** | Qdrant | Semantic similarity search; embeddings come from the configured provider (Ollama by default) |
 | **File** | Markdown | Human-readable learnings, detailed analysis, Obsidian-compatible |
-| **Event Log** | SQLite | Session tracking, episodic memory, audit trail (embedded, no extra container) |
+| **Event Log** | SQLite (default) or PostgreSQL | Session tracking, episodic memory, audit trail (SQLite is embedded, no extra container; PostgreSQL is opt-in) |
 | **Procedural** | Structured | Diagnostic procedures, step-by-step problem-solving patterns |
 | **Cache** | Redis | Hot path optimization, entity resolution (<1ms lookups) |
 | **Embeddings** | Ollama (user-provided), or in-process ONNX (`EMBED_PROVIDER=local-onnx`, experimental) | Local vector embeddings; every collection records the embedder fingerprint ([details](INSTALLATION.md#embedding-provider-experimental)) |
@@ -234,8 +234,8 @@ One `docker compose up` gives any AI agent a complete cognitive layer.
 
 ### Privacy-First
 
-- **Local embeddings** via Ollama (nomic-embed-text, 768-dim). No embedding data leaves your machine.
-- **All backing stores local**: Neo4j, Qdrant, and Redis run in your Docker stack; the event log is embedded SQLite. No cloud services required.
+- **Local embeddings** by default via Ollama (nomic-embed-text, 768-dim), or in-process ONNX (`local-onnx`, experimental). With either, no embedding data leaves your machine; only the experimental `openai-compatible` provider sends text to the endpoint you configure.
+- **All backing stores local**: Neo4j, Qdrant, and Redis run in your Docker stack; the event log is embedded SQLite by default (PostgreSQL is opt-in). No cloud services required.
 - **Optional cloud LLM**: use Ollama for fully offline operation, or Anthropic/OpenAI for LLM-assisted features.
 
 ### Supply chain & security
@@ -288,7 +288,7 @@ One `docker compose up` gives any AI agent a complete cognitive layer.
 
 **Observe**
 - `health`: system-wide health check
-- `vector_health`: embedding service status
+- `vector_health`: embedding service status, embed provider, fingerprint and per-collection drift state
 - `get_event_log_health`: event log statistics
 - `query_events`: event log queries with filtering
 
@@ -300,7 +300,7 @@ Each MCP tool is self-describing: any MCP client can enumerate the full tool cat
 
 Mnemodrome works with four LLM provider types. Configure via `.env`.
 
-**Ollama (local, recommended default):** Simple, private, zero API cost. Embeddings always run through a local Ollama endpoint regardless of which chat provider you choose.
+**Ollama (local, recommended default):** Simple, private, zero API cost. Embeddings are configured separately from the chat provider with `EMBED_PROVIDER`: `ollama` (default), `local-onnx` (in-process ONNX Runtime with `nomic-embed-text` v1.5, experimental, opt-in) or `openai-compatible` (experimental).
 
 ```bash
 LLM_PROVIDER=ollama
@@ -333,7 +333,7 @@ LLM_BASE_URL=https://openrouter.ai/api/v1   # or your engine's base URL
 LLM_API_KEY=your-key
 ```
 
-Note: even when using a cloud chat provider, the embedding model still needs a local (or reachable) embedding endpoint. The default is Ollama running `nomic-embed-text`. Configure with `OLLAMA_EMBEDDING_HOST` if Ollama is on a different host.
+Note: even when using a cloud chat provider, embeddings still need a provider. The default is Ollama running `nomic-embed-text`; configure with `OLLAMA_EMBEDDING_HOST` if Ollama is on a different host, or set `EMBED_PROVIDER` for another provider. Every collection records an embedding fingerprint and canary vectors, so a changed embedder or engine is detected as drift and reported by `vector_health` and search warnings. To switch provider on existing data, re-embed with `python -m src.cli.reindex` (build, then swap; rollback is available). See [INSTALLATION.md](INSTALLATION.md#embedding-provider-experimental).
 
 Each backing store can be swapped independently:
 
